@@ -1,0 +1,12 @@
+---
+## So I don't forget to update after a new package is downloaded!
+
+- open Miniforge Prompt
+- mamba info --envs
+- mamba activate C:\Users\b8008458\AppData\Local\miniforge3\envs\growbikenet
+- mamba env export --no-builds > "C:\Users\b8008458\OneDrive - Newcastle University\2022 to 2023\PhD\networkGrowth\bikenwgrowth\environment.yml"
+- remove file name at very bottom of file
+- libcurl (remove version)
+
+- check for against MacOS environment for differances
+

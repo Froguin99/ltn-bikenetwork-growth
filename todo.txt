@@ -1,0 +1,127 @@
+MUST
+
+Random growth seems to finish at a different investment length: need to check code?
+Make a "No LTN" version
+	- will have to think about where we have the seed point, we'll need to make the network the same total size?
+Make a "Lots more LTNs" version - LTNs will probably grow as cycling grows...
+	- again think about total size, does it make sense to compare otherwise...
+Double check cost of investment plots
+Make sketches to explain terms and steps etc
+make it run for all place in cities.csv
+Store LTNs on a public location to avoid manually having to find the data
+.git folder is huge (11 gb!) - find a way of deleting 
+run a comparison of weighted, weightined with cycle = 0 and unweighted routing. results seem dramatic atm
+Currently builds on trunk roads - disallow?
+
+
+
+OPTIONAL
+
+
+Set up fuzzy matching of places to growbike's use of placenames (e.g. Newcastle Upon Tyne --> newcastle)
+population coverage?
+snap to largest cycle component in cell rather than just nearest? 
+Join up to "useful" part of a neighbourhood?
+Road gradient as a weight (or link gradient too?)
+Circle packing between neighbourhoods - very low prioirty
+rustworkx for speeding up routing - very low prioirty
+measure gt-abstract avg degree growth
+make visual distinction between covered and reached pois in cover plots
+add comments to all functions, https://www.datacamp.com/community/tutorials/docstrings-python
+split up functions.py?
+existing analysis: union carall and biketrack for biketrackcarall?
+zip result pickles?
+profile code?
+
+
+DONE
+X Overlap - show differently (like in the growbike paper)
+X Plots - make random a baseline and then show devivation
+X Make a non-LTNs first approach and compare
+X Remove ukcensusAPI from libaries
+X Clean up .pack filt in .git (way too big)
+X Upload Tyne & Wear Neighbourhoods
+X edit plotting to show neighbourhoods and tesselation process
+X tweak biketrack input to UK context of tags
+X simulate random link growth?
+X random and betwennes finishing a slightly different values...
+X ranking order incorrect, changed to new metric of betwenness 
+X for tesselation points which aren't snapped to bike track, snap to stroke to get more logical start points 
+X G_biketrack streets look like they're missing geometry
+X alter weighting to use LoS
+X Snap to stroke when no network to snap to 
+X route between neighbourhood exit points
+X Create tesselation between neighbourhoods
+X grow by kms 
+X make combined ltns + tesselation points GT graph
+X Create sub-graph from ltns within GT graph
+X make it work in loop -  X 
+X neighbourhood exit points - DONE BUT SLOW 
+X Plot ebc on graph to show that edges are kinda weird (didnt use distance orignally)
+X do proper weighting - will need more tags in the cvs file
+
+
+
+
+X make coverage + lcchighlight plot for paper (milan?, london?, moscow?)
+X fix: analysisplots: pois covered railwaystation not grid
+X plots: for each city: length ratio of grown/existing versus ratio of metric (efficiency)
+X calculate efficiencies for carminusbike simplified graphs - sayat
+X check+fix GT chicago: lat lon mixed up for length calculations?!
+X calculate efficiencies for simplified graphs
+X clean up analysis plots
+X simulate random GT growth
+X implement pop density pois? <- no reliable data
+X remove bicycle~designated and re-run where relevant (e.g. portland, chicago)
+X use shapely simplify (dont use - covers become too imprecise)
+X external plot and results folder due to github size limites https://stackoverflow.com/questions/38768454/repository-size-limits-for-github-com
+X make test run of everything on a testcity
+X add living_street and cyclestreet to biketrack, for netherlands
+X get missing shape files
+X location MultiPolygon: get largest polygon for cases like Amsterdam, account for Tokyo
+X location polygon: fill holes
+X styling for analysis plots
+X osmnx 0.16 compatibility updates: geocode_to_gdf, etc
+X add largest US/UK cities
+X snap POIs to simplfied networks
+X Export carconstrictedbike networks for betweenness calculations
+X investigate/fix components measures for carminusbike network
+X cover plots
+X auto adjust thickness for gt abstract networks
+X investigate/fix overlap measures
+X remove cluster algorithms
+X polish plots
+X instead of turning streets completely into bike lanes, decrease speed (=increase effective distance) from 50km/h to 5km/h 
+X implement directness_lcc, length_lcc
+X analysis-plot: add levels for: existing net (biketrack, and bikeable)
+X analysis-plot: add overlap with existing net
+X measure overlap
+X measure relative cost and efficiency (to MST)
+X analyze and plot metrics also for car setminus created bike networks
+X fix delete_overlaps
+X calculate metrics in a smart, additive way, especially coverage
+X fix efficiency_local 0
+X fix poi_coverage 0
+X fix non-positive weight errors that happen in 03,04 for some cities
+X fix division by zero in 05, in calculate_directness: return total_distance_haversine / total_distance_network
+X pois should be created from data network file, not from online OSMNX. otherwise online changes will make data inconsistent if 01 and 02 are run at different times.
+X re-run 03 for poi_source grid
+X fix all *_poi_grid_nnidscarall.csv being empty!
+X compress data to be commitable (below 100MB)
+X loop 06 through cities
+X consider edge cases: <2 POIs, <2 clusters, etc
+X fix speed issue with buffer
+X measure efficiency of existing infrastructure (simplified graphs, subsample)
+X calculate coverage along edges, not nodes
+X pull constants and parameters
+X measure local/global efficiency of abstract GT
+X analyze cluster data
+X implement additional absolute cluster cutoff
+X fix and test grid generation with numpy
+X analysis in placeid loop
+X make 01 more elegant (dict of Gs, involve all osmnxparameters)
+X move plots into 06
+X bundle all code together in a for loop over placeids
+X delete unnecessary imports
+X save cluster data
+X create biketrackcarall networks in advance, and test
