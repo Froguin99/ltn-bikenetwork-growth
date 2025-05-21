@@ -1,0 +1,36 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test-env:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [macos-latest]
+
+    steps:
+      - uses: actions/checkout@v3
+
+      # Set up Miniconda with Mamba to speed up environment solving
+      - uses: conda-incubator/setup-miniconda@v3
+        with:
+          python-version: 3.12
+          miniforge-variant: Mambaforge
+          miniforge-version: 23.3.1-1
+          architecture: x64
+          environment-file: environment_mac.yml
+          activate-environment: growbikenet
+
+
+      # Just to be sure, update env (optional, remove if unnecessary)
+      - run: conda env update -n growbikenet -f environment_mac.yml
+        shell: bash -l {0}
+
+      # List installed packages to verify environment is set up correctly
+      - run: conda list
+        shell: bash -l {0}
+
+      # Quick test that some key packages import correctly
+      - run: python -c "import geopandas, rasterio, osmnx"
+        shell: bash -l {0}
