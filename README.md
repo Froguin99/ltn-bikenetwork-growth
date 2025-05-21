@@ -32,7 +32,7 @@ or [`micromamba`](https://mamba.readthedocs.io/en/latest/installation/micromamba
 mamba env create -f environment.yml
 mamba activate growbikenet
 ```
-**Note for MacOS users** - please use `environment_mac.yml` when installing, this should work excatly the same but if you run in to any issues please let me know, as I'm not a apple user!
+**Note for MacOS users** - please use `environment_mac.yml` when installing, this should work excatly the same but if you run in to any issues please let me know, as I'm not an Apple user!
 
 #### Environment creation from command line
 
