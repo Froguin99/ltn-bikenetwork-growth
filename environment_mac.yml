@@ -1,4 +1,4 @@
-name: growbikenet
+name: growbikenet_mac
 channels:
   - conda-forge
   - nodefaults
