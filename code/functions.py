@@ -1853,14 +1853,24 @@ def get_neighbourhood_street_graph(gdf, debug=False):
     
     # get driving network (we're only interested in streets cars could be on)
     network = nx.MultiDiGraph()
-    for polygon in gdf_buffered.geometry:
+    for i, polygon in enumerate(gdf_buffered.geometry):
         try:
-            # Attempt to get network for the buffered polygon
             net = ox.graph_from_polygon(polygon, network_type='drive')
+            if len(net) == 0:
+                print(f"Polygon {i}: Empty graph returned. Skipping.")
+                continue
             network = nx.compose(network, net)
         except ValueError as e:
-            print(f"Skipping a polygon with no roads: {e}")
-            continue  
+            print(f"Polygon {i}: Skipping due to ValueError: {e}")
+            continue
+        except Exception as e:
+            print(f"Polygon {i}: Skipping due to other error: {e}")
+            continue
+
+    if len(network.nodes) == 0:
+        print("No valid network data was found in any neighbourhood.")
+        # Return empty GeoDataFrames and empty graph
+        return gpd.GeoDataFrame(), gpd.GeoDataFrame(), nx.MultiDiGraph() 
     nodes, edges = ox.graph_to_gdfs(network)
     edges = gpd.sjoin(edges, gdf[['ID', 'overall_score', 'geometry']], how="left", op='intersects')
     exclude_conditions = (
@@ -1893,6 +1903,13 @@ def get_neighbourhood_street_graph(gdf, debug=False):
     G = ox.graph_from_gdfs(nodes, edges)
     
     return nodes, edges, G
+
+
+
+
+
+
+
 
 def get_neighbourhood_streets_split(gdf, debug):
     """"
@@ -3501,3 +3518,594 @@ def find_bounding_lines(centroids, lines_gdf):
                 bound_idxs.append(match)
         result[cent_idx] = bound_idxs
     return result
+
+
+def run_random_growth(placeid, poi_source, investment_levels, weighting, greedy_gdf, G_caralls, G_weighted, all_centroids, exit_points, sp_length, sp_path, ltn_gdf, tess_gdf, debug=False):
+    '''Creates a bike network through random order, given a list of input edges and a budget. Used to create many random runs.'''
+    shuffled_edges = greedy_gdf.sample(frac=1)  # no fixed seed for variability
+    random_edges = pd.Series(False, index=greedy_gdf.index)
+    distance = 0.0
+    edge_pointer = 0
+
+    global_processed_pairs_random = set()
+    cumulative_GT_indices_random = set()
+    Random_GT_abstracts = []
+    Random_GT_abstracts_gdf = []
+    Random_GTs = []
+    Random_GTs_gdf = []
+    
+    for D in tqdm(investment_levels, desc="Pruning GT abstract randomly and routing on network for meters of investment"):
+        # Calculate remaining budget for new edges
+        remaining_budget = D - distance
+        if remaining_budget > 0 and edge_pointer < len(shuffled_edges):
+            cumulative_distances = shuffled_edges.iloc[edge_pointer:]['distance'].cumsum()
+            within_budget = cumulative_distances <= remaining_budget
+            num_edges_to_add = within_budget.sum()
+            if num_edges_to_add > 0:
+                new_idx = shuffled_edges.iloc[edge_pointer:edge_pointer + num_edges_to_add].index
+                random_edges[new_idx] = True
+                distance += cumulative_distances.iloc[num_edges_to_add - 1]
+                edge_pointer += num_edges_to_add
+
+        # Save abstract graph
+        GT_abstract_gdf = greedy_gdf[random_edges].copy()
+        if GT_abstract_gdf.empty:
+            print(f"[run_random_growth] No edges selected at investment level {D}. Skipping.")
+            Random_GT_abstracts_gdf.append(GT_abstract_gdf)
+            Random_GT_abstracts.append(nx.Graph())
+            Random_GTs.append(nx.Graph())
+            Random_GTs_gdf.append(gpd.GeoDataFrame())
+            continue
+        else:
+            Random_GT_abstracts_gdf.append(GT_abstract_gdf)
+            GT_abstract_nx = gdf_to_nx_graph(GT_abstract_gdf)
+            Random_GT_abstracts.append(GT_abstract_nx)
+            routenodepairs = list(GT_abstract_nx.edges())
+
+        if debug:
+            ax = GT_abstract_gdf.plot()
+            ltn_gdf.plot(ax=ax, color='red', markersize=10)
+            tess_gdf.plot(ax=ax, color='green', markersize=5)
+            for idx, row in ltn_gdf.iterrows():
+                ax.annotate(
+                    text=str(row['osmid']),  # Use index or another column for labeling
+                    xy=(row.geometry.x, row.geometry.y),  # Get the coordinates of the point
+                    xytext=(3, 3),  
+                    textcoords="offset points",
+                    fontsize=8,
+                    color="red"
+                )
+
+        # Prepare for routing
+        GT_indices = set()
+        for u, v in routenodepairs:
+            pair = (u, v)
+            if pair in global_processed_pairs_random or tuple(reversed(pair)) in global_processed_pairs_random:
+                continue
+
+            # Determine node types
+            is_u_nei = u in all_centroids['nearest_node'].values
+            is_v_nei = v in all_centroids['nearest_node'].values
+
+            if is_u_nei and is_v_nei:
+                # Neigh-Neigh: exit->exit routing
+                na = all_centroids.loc[all_centroids['nearest_node'] == u, 'neighbourhood_id'].iloc[0]
+                nb = all_centroids.loc[all_centroids['nearest_node'] == v, 'neighbourhood_id'].iloc[0]
+                exit_a = exit_points.loc[exit_points['neighbourhood_id'] == na, 'osmid']
+                exit_b = exit_points.loc[exit_points['neighbourhood_id'] == nb, 'osmid']
+                best_len = float('inf')
+                best_path = None
+                for ea in exit_a:
+                    for eb in exit_b:
+                        if (ea, eb) in sp_length:
+                            L = sp_length[(ea, eb)]
+                            if L < best_len:
+                                best_len = L
+                                best_path = sp_path[(ea, eb)]
+                if best_path:
+                    GT_indices.update(best_path)
+
+            elif is_u_nei and not is_v_nei:
+                # Neigh -> Tessellation
+                na = all_centroids.loc[all_centroids['nearest_node'] == u, 'neighbourhood_id'].iloc[0]
+                exit_a = exit_points.loc[exit_points['neighbourhood_id'] == na, 'osmid']
+                best_len = float('inf')
+                best_path = None
+                for ea in exit_a:
+                    if (ea, v) in sp_length:
+                        L = sp_length[(ea, v)]
+                        if L < best_len:
+                            best_len = L
+                            best_path = sp_path[(ea, v)]
+                if best_path:
+                    GT_indices.update(best_path)
+
+            elif not is_u_nei and is_v_nei:
+                # Tessellation -> Neigh
+                nb = all_centroids.loc[all_centroids['nearest_node'] == v, 'neighbourhood_id'].iloc[0]
+                exit_b = exit_points.loc[exit_points['neighbourhood_id'] == nb, 'osmid']
+                best_len = float('inf')
+                best_path = None
+                for eb in exit_b:
+                    if (u, eb) in sp_length:
+                        L = sp_length[(u, eb)]
+                        if L < best_len:
+                            best_len = L
+                            best_path = sp_path[(u, eb)]
+                if best_path:
+                    GT_indices.update(best_path)
+
+            else:
+                # Tess-Tess direct
+                if (u, v) in sp_path:
+                    GT_indices.update(sp_path[(u, v)])
+
+            global_processed_pairs_random.add(pair)
+
+        cumulative_GT_indices_random.update(GT_indices)
+
+        if len(cumulative_GT_indices_random) == 0:
+            print(f"[run_random_growth] No routes found at investment level {D}. Skipping.")
+            Random_GTs.append(nx.Graph())
+            Random_GTs_gdf.append(gpd.GeoDataFrame())
+            continue
+        # Build GT subgraph and store
+        GT = G_caralls[placeid].subgraph(cumulative_GT_indices_random)
+        for a, b, data in GT.edges(data=True):
+            if 'length' in data:
+                data['weight'] = data['length']
+
+        if GT.number_of_edges() == 0:
+            print(f"[run_random_growth] Skipping empty GT at investment level {D}")
+            Random_GTs.append(nx.Graph())
+            Random_GTs_gdf.append(gpd.GeoDataFrame())
+            continue
+
+        Random_GTs.append(GT)
+        _, Random_GT_edges = ox.graph_to_gdfs(GT)
+        Random_GTs_gdf.append(Random_GT_edges)
+
+        if debug:
+            GT_nodes, GT_edges = ox.graph_to_gdfs(GT)
+            GT_edges = GT_edges.to_crs(epsg=3857)
+            ax = GT_edges.plot()
+            ltn_gdf.plot(ax=ax, color='red', markersize=10)
+            tess_gdf.plot(ax=ax, color='green', markersize=5)
+            ax.set_title(f"Investment level: {D}, Number of edges: {len(GT.edges)}")
+
+    results = {
+        "placeid": placeid,
+        "prune_measure": "random",
+        "poi_source": poi_source,
+        "prune_quantiles": investment_levels,
+        "GTs": Random_GTs,
+        "GT_abstracts": Random_GT_abstracts
+    }
+    return results
+
+
+def get_composite_lcc_length(G, G_biketrack):
+    # get the legth of the largest connected component in the graph G, including the biketrack G_biketrack
+    merged = nx.compose(G, G_biketrack)
+    components = list(nx.weakly_connected_components(merged))
+    if not components:
+        return 0.0
+    largest_component_nodes = max(components, key=len)
+    largest_component = merged.subgraph(largest_component_nodes)
+    total_length = sum(data.get('length', 0) for _, _, data in largest_component.edges(data=True))
+    return total_length
+
+
+
+def compute_total_lengths(graphs):
+    # used to find the length of each bicycle network at each stage of growth
+    return [sum(nx.get_edge_attributes(G, 'length').values()) for G in graphs]
+
+def compute_abs_deviation(series, baseline):
+    # find the difference against the baseline (random growth)
+    return [s - b for s, b in zip(series, baseline)]
+
+
+def compute_total_investment_lengths(graphs, distance_cost):
+    """
+    Compute the investment-weighted length of each graph in a list.
+    """
+    results = []
+    for G in graphs:
+        if not isinstance(G, nx.Graph) or len(G.edges) == 0:
+            results.append(0)
+            continue # this is for if during random growth an empty graph is created - rare but happens
+
+        for u, v, data in G.edges(data=True):
+            highway_type = data.get('highway', 'unclassified')
+            length = data.get('length', 0)
+            data['investment_length'] = length * distance_cost.get(highway_type, 1)
+
+        results.append(sum(nx.get_edge_attributes(G, 'investment_length').values()))
+
+    return results
+
+
+def compute_length_difference(graphs):
+    """Compute total difference between raw length and investment-weighted length for a series of graphs."""
+    return [
+        sum(nx.get_edge_attributes(G, 'length').values()) -
+        sum(nx.get_edge_attributes(G, 'investment_length').values())
+        for G in graphs
+    ]
+
+
+def compute_graph_total_length(G):
+        """
+        Compute the total raw length of all edges in a single graph.
+        """
+        return sum(data.get('length', 0) for _, _, data in G.edges(data=True))
+
+
+def compute_biketrack_connected_lengths(graphs, G_biketrack):
+    """
+    For a list of graphs, compute:
+    - the total raw length of each graph
+    - the length of the biketrack network connected to each graph
+    - the combined total of the two
+    """
+    G_lengths = []
+    biketrack_lengths = []
+    combined_lengths = []
+    
+    for G in graphs:
+        length_G = compute_graph_total_length(G)
+        common_nodes = set(G.nodes) & set(G_biketrack.nodes)
+        length_G_biketrack = compute_graph_total_length(G_biketrack.subgraph(common_nodes)) if common_nodes else 0
+        
+        G_lengths.append(length_G)
+        biketrack_lengths.append(length_G_biketrack)
+        combined_lengths.append(length_G + length_G_biketrack)
+    
+    return G_lengths, biketrack_lengths, combined_lengths
+
+
+
+
+def compute_lcc_lengths(graph_list, G_biketrack):
+    # find the longest connected component, including any existing cycle network
+    # use this to find the lcc+all the extra we connect to
+    total_lengths_lcc = []
+    for G in graph_list:
+        merged = nx.compose(G, G_biketrack)
+        components = list(nx.weakly_connected_components(merged))
+        max_length = 0.0
+        for comp in components:
+            subgraph = merged.subgraph(comp)
+            total_length = sum(data.get('length', 0) for _, _, data in subgraph.edges(data=True))
+            if total_length > max_length:
+                max_length = total_length
+        total_lengths_lcc.append(max_length)
+    return total_lengths_lcc
+
+
+def load_results(path):
+    if os.path.exists(path):
+        with open(path, 'rb') as f:
+            return pickle.load(f)
+    return {}
+
+def save_results(results, pickle_path, csv_path):
+    with open(pickle_path, 'wb') as f:
+        pickle.dump(results, f)
+    df = pd.DataFrame({k: pd.Series(v) for k, v in results.items()})
+    df.to_csv(csv_path, index=False)
+
+
+
+
+
+
+def create_buffer(G, buffer_walk, simplify_tolerance=10, prev_edges=None, prev_union=None):
+    """Incrementally create a buffer, reusing previous buffer for existing edges."""
+    gdf_edges = ox.graph_to_gdfs(G, nodes=False).to_crs(epsg=3857)
+    current_edges = set(gdf_edges.index)
+    new_edges = current_edges if prev_edges is None else current_edges - prev_edges
+    simplified = gdf_edges.loc[list(new_edges), "geometry"].simplify(simplify_tolerance)
+    buffered = simplified.buffer(buffer_walk)
+    new_union = buffered.unary_union if not buffered.empty else None
+    if prev_union is None:
+        combined = new_union
+    elif new_union is None:
+        combined = prev_union
+    else:
+        combined = prev_union.union(new_union)
+    buffer_gdf = gpd.GeoDataFrame(geometry=[combined], crs="EPSG:3857").to_crs(epsg=4326)
+    return buffer_gdf, current_edges, combined
+
+def process_and_save_buffers_parallel(G_list, name, rerun, path_base, buffer_walk, simplify_tolerance=5, max_workers=4):
+    """Process and save buffers in parallel (much faster!)."""
+    filename = f"{path_base}_{name}.pickle"
+    if rerun or not os.path.exists(filename):
+        print(f"Generating {name} buffers with parallel processing...")
+        buffers = []
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            # Map graphs to create_buffer in parallel
+            futures = [executor.submit(create_buffer, G, buffer_walk, simplify_tolerance) for G in G_list]
+            for f in tqdm(concurrent.futures.as_completed(futures), total=len(futures), desc=f"Processing {name}"):
+                buffer_gdf, _, _ = f.result()
+                buffers.append(buffer_gdf)
+        with open(filename, "wb") as f:
+            pickle.dump(buffers, f)
+    else:
+        print(f"Loading cached {name} buffers...")
+        with open(filename, "rb") as f:
+            buffers = pickle.load(f)
+    return buffers
+
+
+def get_edge_path(G, path_nodes):
+    # find routes between points on a graph
+    edges = []
+    for i in range(len(path_nodes) - 1):
+        u = path_nodes[i]
+        v = path_nodes[i + 1]
+        data = G.get_edge_data(u, v)
+        if data:
+            key = list(data.keys())[0]
+            edges.append((u, v, key))
+        else:
+            edges.append((u, v, None))
+    return edges
+
+def add_ped_edges_to_cycle_graph(cycle_graph, ped_graph, ped_path_edges):
+    # find edges in the pedestrian path that are not in the cycle graph and add them
+    for u, v, key in ped_path_edges:
+        for node in (u, v):
+            if not cycle_graph.has_node(node):
+                # Copy node attributes from ped_graph if present
+                if ped_graph.has_node(node):
+                    cycle_graph.add_node(node, **ped_graph.nodes[node])
+                else:
+                    # Node missing in ped_graph too — add empty node with warning
+                    cycle_graph.add_node(node)
+                    print(f"Warning: Node {node} missing in ped_graph; added without attributes.")
+        
+        # Now add the edge 
+        if not cycle_graph.has_edge(u, v, key):
+            edge_data = ped_graph.get_edge_data(u, v, key)
+            if edge_data:
+                cycle_graph.add_edge(u, v, key=key, **edge_data)
+            else:
+                edge_data_rev = ped_graph.get_edge_data(v, u, key)
+                if edge_data_rev:
+                    cycle_graph.add_edge(u, v, key=key, **edge_data_rev)
+    return cycle_graph
+
+
+def clean_edge_attributes(G):
+    ## this cleans the edge attributes which are lists, e.g. osmid, highway, name
+    ## it is required as omsnx doesn't like lists :(
+    ## takes in a graph of streets in a neighbourhood, returns the same graph but cleaned
+    for u, v, key, data in G.edges(keys=True, data=True):
+        for attr, value in list(data.items()):
+            if isinstance(value, list):
+                if attr == 'osmid':
+                    # Take the first osmid only
+                    if len(value) > 0:
+                        data[attr] = value[0]
+                    else:
+                        data[attr] = None  # or handle empty list case
+                elif attr in ['highway', 'name']:
+                    # Take the first item or join if you prefer all
+                    data[attr] = value[0] if len(value) > 0 else None
+                else:
+                    # For other attributes, just take the first element or join them if needed
+                    data[attr] = value[0] if len(value) > 0 else None
+    return G
+
+def plot_and_save_network_stats(results, output_plot_path, output_csv_path, scenario):
+    network_stats = []
+
+    for neighbourhood_name, stats in results.items():
+        cycle_graph_before = stats["cycle_graph_before"]
+        cycle_graph_after = stats["cycle_graph_after"]
+
+        nodes_before = len(cycle_graph_before.nodes)
+        nodes_after = len(cycle_graph_after.nodes)
+
+        edges_before = len(cycle_graph_before.edges)
+        edges_after = len(cycle_graph_after.edges)
+
+        length_before = sum(data['length'] for u, v, k, data in cycle_graph_before.edges(keys=True, data=True))
+        length_after = sum(data['length'] for u, v, k, data in cycle_graph_after.edges(keys=True, data=True))
+
+        network_stats.append({
+            'neighbourhood': neighbourhood_name,
+            'nodes_before': nodes_before,
+            'nodes_after': nodes_after,
+            'edges_before': edges_before,
+            'edges_after': edges_after,
+            'length_before': length_before,
+            'length_after': length_after
+        })
+
+    network_df = pd.DataFrame(network_stats).set_index('neighbourhood')
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5))
+    legend_labels = ['Cycle Network', 'Cycle Network with Key Pedestrian Links']
+
+    # Plot nodes
+    network_df[['nodes_before', 'nodes_after']].plot(kind='bar', ax=axes[0], legend=False)
+    axes[0].set_title(f'Number of Nodes Before vs After ({scenario})')
+    axes[0].set_ylabel('Count')
+
+    # Plot edges
+    network_df[['edges_before', 'edges_after']].plot(kind='bar', ax=axes[1], legend=False)
+    axes[1].set_title(f'Number of Edges Before vs After ({scenario})')
+    axes[1].set_ylabel('Count')
+
+    # Plot length
+    network_df[['length_before', 'length_after']].plot(kind='bar', ax=axes[2], legend=False)
+    axes[2].set_title(f'Total Edge Length Before vs After ({scenario})')
+    axes[2].set_ylabel('Length (meters)')
+
+    for ax in axes:
+        ax.set_xticks(range(len(network_df.index)))
+        ax.set_xticklabels(network_df.index, rotation=45, ha='right', fontsize=8)
+        ax.set_xlabel('Place')
+
+    handles, _ = axes[1].get_legend_handles_labels()
+    fig.legend(handles, legend_labels, loc='lower center', ncol=2, bbox_to_anchor=(0.5, -0.15))
+
+    plt.tight_layout(rect=[0, 0.05, 1, 1])
+    plt.savefig(output_plot_path, dpi=300)
+    plt.close(fig)
+
+    # Ensure output directory exists for CSV
+    os.makedirs(os.path.dirname(output_csv_path), exist_ok=True)
+    network_df.to_csv(output_csv_path)
+
+
+
+def patch_cycle_graph_with_pedestrian_links(neighbourhoods, debug=False):
+    """
+    Process each neighbourhood graph to add key pedestrian links into the cycle graph.
+
+    Returns:
+        results: dict keyed by neighbourhood name with before/after cycle graphs and info
+    """
+    results = {}
+
+    for city_name, neighbourhood_gdf in neighbourhoods.items():
+        if debug:
+            print(f"Processing: {city_name}")
+        neighbourhood_gdf['ID'] = range(1, len(gdf) + 1)
+        ped_nodes, ped_edges, ped_graph = get_neighbourhood_pedestrian_graph(neighbourhood_gdf, debug=debug)
+        cycle_nodes, cycle_edges, cycle_graph = get_neighbourhood_street_graph(neighbourhood_gdf, debug=debug)
+
+        exit_nodes = get_exit_nodes({city_name: neighbourhood_gdf}, cycle_graph, buffer_distance=5)
+        exit_node_ids = exit_nodes['osmid'].unique()
+
+        combined_graph = nx.compose(ped_graph, cycle_graph)
+        combined_routes = {origin: {} for origin in exit_node_ids}
+        cycle_routes = {origin: {} for origin in exit_node_ids}
+        combined_reachability = pd.DataFrame(False, index=exit_node_ids, columns=exit_node_ids)
+        cycle_reachability = pd.DataFrame(False, index=exit_node_ids, columns=exit_node_ids)
+
+        for origin in exit_node_ids:
+            for destination in exit_node_ids:
+                if origin == destination:
+                    combined_reachability.loc[origin, destination] = True
+                    combined_routes[origin][destination] = []
+                    cycle_reachability.loc[origin, destination] = True
+                    cycle_routes[origin][destination] = []
+                    continue
+
+                try:
+                    combined_path_nodes = nx.shortest_path(combined_graph, source=origin, target=destination, weight='length')
+                    combined_reachability.loc[origin, destination] = True
+                    combined_routes[origin][destination] = get_edge_path(combined_graph, combined_path_nodes)
+                except nx.NetworkXNoPath:
+                    combined_reachability.loc[origin, destination] = False
+                    combined_routes[origin][destination] = []
+
+                try:
+                    cycle_path_nodes = nx.shortest_path(cycle_graph, source=origin, target=destination, weight='length')
+                    cycle_reachability.loc[origin, destination] = True
+                    cycle_routes[origin][destination] = get_edge_path(cycle_graph, cycle_path_nodes)
+                except nx.NetworkXNoPath:
+                    cycle_reachability.loc[origin, destination] = False
+                    cycle_routes[origin][destination] = []
+
+        # Save cycle graph before patching
+        cycle_graph_before = deepcopy(cycle_graph)
+
+        # Patch cycle graph with pedestrian edges
+        for origin in exit_node_ids:
+            for destination in exit_node_ids:
+                if not cycle_reachability.loc[origin, destination] and combined_reachability.loc[origin, destination]:
+                    ped_route_edges = combined_routes[origin][destination]
+                    if ped_route_edges:
+                        cycle_graph = add_ped_edges_to_cycle_graph(cycle_graph, ped_graph, ped_route_edges)
+
+        # Save cycle graph after patching
+        cycle_graph_after = cycle_graph
+
+        # Store results
+        results[city_name] = {
+            'cycle_graph_before': cycle_graph_before,
+            'cycle_graph_after': cycle_graph_after,
+            'ped_graph': ped_graph,
+            'exit_nodes': exit_node_ids,
+            'combined_routes': combined_routes,
+            'cycle_routes_before': cycle_routes,
+            'combined_reachability': combined_reachability,
+            'cycle_reachability_before': cycle_reachability
+        }
+
+        if debug:
+            print(f"Finished processing pedestrian links in: {city_name}")
+
+    return results
+
+
+def get_neighbourhood_pedestrian_graph(gdf, debug=False):
+    """
+    Get pedestrian edges within each neighbourhood.
+
+    Parameters:
+        gdf (GeoDataFrame): GeoDataFrame containing neighbourhood polygons eithin an ID column.
+        debug (bool): If True, plot edges colored by neighbourhood ID.
+
+    Returns:
+        nodes (GeoDataFrame): Nodes of the pedestrian graph.
+        edges (GeoDataFrame): Edges of the pedestrian graph.
+        G (MultiDiGraph): The combined pedestrian graph.
+    """
+
+    # Buffer polygons slightly in Mercator projection (to avoid boundary issues)
+    gdf_mercator = gdf.to_crs(epsg=3857)
+    gdf_mercator = gdf_mercator.buffer(10)  # 10 meters buffer
+    gdf_buffered = gpd.GeoDataFrame(geometry=gdf_mercator, crs="EPSG:3857").to_crs(epsg=4326)
+    pedestrian_network = nx.MultiDiGraph()
+    for i, polygon in enumerate(gdf_buffered.geometry):
+        try:
+            ped_net = ox.graph_from_polygon(polygon, network_type='walk')
+            if len(ped_net) == 0:
+                if debug:
+                    print(f"Polygon {i}: Empty pedestrian graph returned. Skipping.")
+                continue
+            pedestrian_network = nx.compose(pedestrian_network, ped_net)
+        except ValueError as e:
+            if debug:
+                print(f"Polygon {i}: Skipping due to ValueError: {e}")
+            continue
+        except Exception as e:
+            if debug:
+                print(f"Polygon {i}: Skipping due to other error: {e}")
+            continue
+    if len(pedestrian_network.nodes) == 0:
+        if debug:
+            print("No valid pedestrian network data found in any neighbourhood.")
+        return gpd.GeoDataFrame(), gpd.GeoDataFrame(), nx.MultiDiGraph()
+    nodes, edges = ox.graph_to_gdfs(pedestrian_network)
+    # Filter out edges with highway=steps or indoor=* tag
+    edges = edges[~(edges['highway'].apply(lambda x: ('steps' in x if isinstance(x, list) else x == 'steps')) | edges['indoor'].notna())]
+    edges = gpd.sjoin(edges, gdf[['ID', 'geometry']], how="left", predicate='intersects')
+    # Drop edges that do not fall within any neighbourhood polygon
+    edges = edges.dropna(subset=['ID'])
+    if debug:
+        unique_ids = edges['ID'].dropna().unique()
+        np.random.seed(42)
+        random_colors = {ID: mcolors.to_hex(np.random.rand(3)) for ID in unique_ids}
+        edges['color'] = edges['ID'].map(random_colors)
+        edges['color'] = edges['color'].fillna('#808080')  # Gray fallback
+
+        fig, ax = plt.subplots(figsize=(10, 10))
+        edges.plot(ax=ax, color=edges['color'])
+        ax.set_title('Pedestrian Edges Colored by Neighbourhood ID')
+        plt.show()
+    # Rebuild graph from filtered nodes and edges
+    u_nodes = edges.index.get_level_values('u')
+    v_nodes = edges.index.get_level_values('v')
+    unique_nodes = set(u_nodes).union(v_nodes)
+    nodes = nodes.loc[nodes.index.intersection(unique_nodes)]
+    G = ox.graph_from_gdfs(nodes, edges)
+
+    return nodes, edges, G
