@@ -1460,9 +1460,9 @@ def generate_video(placeid, imgname, vformat = "webm", duplicatelastframe = 5, v
 
 
 
-def write_result(res, mode, placeid, poi_source, prune_measure, suffix, dictnested={}, weighting=None):
-    """Write results (pickle or dict to csv)
-    """
+
+def write_result(res, mode, placeid, poi_source, prune_measure, suffix, dictnested={}, weighting=None, scenario=None):
+    """Write results (pickle or dict to csv), now supports scenario subfolders and scenario-tagged filenames"""
     if mode == "pickle":
         openmode = "wb"
     else:
@@ -1470,20 +1470,27 @@ def write_result(res, mode, placeid, poi_source, prune_measure, suffix, dictnest
 
     # Modify filename based on weighting flag
     weighting_str = "_weighted" if weighting else ""
-    
-    # Construct the filename based on whether prune_measure is provided or not
+    scenario_str = f"_{scenario}" if scenario else ""
+
+    # Construct the filename
     if poi_source:
         if prune_measure:
-            filename = placeid + '_poi_' + poi_source + "_" + prune_measure + weighting_str + suffix
+            filename = f"{placeid}_poi_{poi_source}_{prune_measure}{weighting_str}{scenario_str}{suffix}"
         else:
-            filename = placeid + '_poi_' + poi_source + weighting_str + suffix
+            filename = f"{placeid}_poi_{poi_source}{weighting_str}{scenario_str}{suffix}"
     else:
         if prune_measure:
-            filename = placeid + "_" + prune_measure + weighting_str + suffix
+            filename = f"{placeid}_{prune_measure}{weighting_str}{scenario_str}{suffix}"
         else:
-            filename = placeid + weighting_str + suffix
+            filename = f"{placeid}{weighting_str}{scenario_str}{suffix}"
 
-    with open(PATH["results"] + placeid + "/" + filename, openmode) as f:
+    # Create scenario folder path
+    folder_path = os.path.join(PATH["results"], placeid, scenario if scenario else "")
+    os.makedirs(folder_path, exist_ok=True)
+
+    file_path = os.path.join(folder_path, filename)
+
+    with open(file_path, openmode) as f:
         if mode == "pickle":
             pickle.dump(res, f)
         elif mode == "dict":
@@ -2543,6 +2550,27 @@ def get_node_pairs(nodes, greedy_triangulation_ltns_gdf):
     
     return node_pairs
 
+# get pairs of neighbourhoods to later route between
+def get_node_pairs_no_ltn(nodes, greedy_triangulation_ltns_gdf):
+    G = nx.Graph()
+    
+    # make networkx graph
+    for _, row in nodes.iterrows():
+        G.add_node(row['osmid'], geometry=row['geometry'])
+    for _, row in greedy_triangulation_ltns_gdf.iterrows():
+        G.add_edge(row['start_osmid'], row['end_osmid'], distance=row['distance'], geometry=row['geometry'])
+    
+    # Now, for each node in the graph, find its neighbors and create node pairs
+    node_pairs = []
+    for node in G.nodes():
+        neighbours = list(G.neighbors(node)) 
+        for neighbour in neighbours:
+            if node < neighbour:  # To avoid duplicates, only add pairs once (node, neighbour) where node < neighbour
+                node_pairs.append((node, neighbour))
+    
+    return node_pairs
+
+
 
 def greedy_triangulation_all(ltn_points_gdf, tess_points_gdf):
     
@@ -2927,12 +2955,77 @@ def adjust_triangulation_to_budget(triangulation_gdf, D, shortest_paths_all, ebc
 
 
 
+def build_greedy_triangulation_no_ltns(tess_points_gdf):
+    """ 
+    Perform a greedy triangulation using only tessellation points
+    """
+    # Assign unique IDs and source label to tess points
+    tess_points_gdf = tess_points_gdf.copy()
+    tess_points_gdf['id'] = range(1, len(tess_points_gdf) + 1)
+    tess_points_gdf['source'] = 'tess'
 
+    # Ensure distances are in meters
+    tess_points_gdf = tess_points_gdf.to_crs('EPSG:3857')
+
+    # Extract coordinates
+    points = list(tess_points_gdf.geometry)
+    coords = np.array([(point.x, point.y) for point in points])
+    
+    # Compute all possible edges
+    edges = []
+    for i, j in itertools.combinations(range(len(coords)), 2):
+        distance = np.linalg.norm(coords[i] - coords[j])
+        edges.append((i, j, distance))
+    
+    # Sort edges by distance
+    edges = sorted(edges, key=lambda x: x[2])
+    
+    # Initialize triangulation
+    selected_edges = []
+    existing_lines = GeometryCollection()
+    
+    # Iterate over edges and add those that don't intersect existing edges
+    for i, j, distance in edges:
+        new_edge = LineString([coords[i], coords[j]])
+        if not existing_lines.crosses(new_edge):
+            selected_edges.append((i, j, distance))
+            existing_lines = unary_union([existing_lines, new_edge])
+
+    # Convert back to lat/lon for accurate geodesic distance calculation
+    tess_points_gdf = tess_points_gdf.to_crs('EPSG:4326')
+    node_distances = {}
+    for (idx1, row1), (idx2, row2) in itertools.combinations(tess_points_gdf.iterrows(), 2):
+        coord1 = (row1.geometry.y, row1.geometry.x)
+        coord2 = (row2.geometry.y, row2.geometry.x)
+        distance = geodesic(coord1, coord2).meters
+        node_distances[(idx1, idx2)] = distance
+
+    # Build GeoDataFrame for edges
+    lines = []
+    start_osmids = []
+    end_osmids = []
+    distances = []
+
+    for i, j, _ in selected_edges:
+        lines.append(LineString([coords[i], coords[j]]))
+        start_osmids.append(tess_points_gdf.iloc[i]['osmid'])
+        end_osmids.append(tess_points_gdf.iloc[j]['osmid'])
+        distance = node_distances[(i, j)]
+        distances.append(distance)
+
+    greedy_triangulation_gdf = gpd.GeoDataFrame({
+        'geometry': lines,
+        'start_osmid': start_osmids,
+        'end_osmid': end_osmids,
+        'distance': distances
+    }, crs=3857)
+
+    return greedy_triangulation_gdf, tess_points_gdf
 
 
 def build_greedy_triangulation(ltn_points_gdf, tess_points_gdf):
     """
-    Perform a greedy triangulation 
+    Perform a greedy triangulation using LTNs and another set of points
     """
     # Assign unique IDs to the points
     ltn_points_gdf['id'] = range(1, len(ltn_points_gdf) + 1)
@@ -4086,7 +4179,10 @@ def get_neighbourhood_pedestrian_graph(gdf, debug=False):
         return gpd.GeoDataFrame(), gpd.GeoDataFrame(), nx.MultiDiGraph()
     nodes, edges = ox.graph_to_gdfs(pedestrian_network)
     # Filter out edges with highway=steps or indoor=* tag
-    edges = edges[~(edges['highway'].apply(lambda x: ('steps' in x if isinstance(x, list) else x == 'steps')) | edges['indoor'].notna())]
+    if 'highway' in edges.columns:
+        edges = edges[~edges['highway'].apply(lambda x: ('steps' in x if isinstance(x, list) else x == 'steps'))]
+    if 'indoor' in edges.columns:
+        edges = edges[edges['indoor'].isna()]
     edges = gpd.sjoin(edges, gdf[['ID', 'geometry']], how="left", predicate='intersects')
     # Drop edges that do not fall within any neighbourhood polygon
     edges = edges.dropna(subset=['ID'])
