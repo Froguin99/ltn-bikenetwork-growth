@@ -17,7 +17,9 @@ import shutil
 from pathlib import Path
 from collections import defaultdict
 import requests
-
+import glob
+from concurrent.futures import ThreadPoolExecutor
+from copy import deepcopy
 
 
 # Math/Data
@@ -95,12 +97,19 @@ if debug:
     print("==============\n\n")
 
 # Create city subfolders  
-for placeid, placeinfo in cities.items():
-    for subfolder in ["data", "plots", "plots_networks", "results", "exports", "exports_json", "videos"]:
-        placepath = PATH[subfolder] + placeid + "/"
-        if not os.path.exists(placepath):
-            os.makedirs(placepath)
-            print("Successfully created folder " + placepath)
+scenario_folders = ["no_ltn_scenario", "more_ltn_scenario", "current_ltn_scenario"]
+main_folders = ["data", "plots", "plots_networks", "results", "exports", "exports_json", "videos"]
+for placeid in cities:
+    for subfolder in main_folders:
+        base_path = os.path.join(PATH[subfolder], placeid)
+        if not os.path.exists(base_path):
+            os.makedirs(base_path)
+            print(f"Created folder: {base_path}")
+        for scenario in scenario_folders:
+            scenario_path = os.path.join(base_path, scenario)
+            if not os.path.exists(scenario_path):
+                os.makedirs(scenario_path)
+                print(f"  └─ Created scenario folder: {scenario_path}")
 
 from IPython.display import Audio
 sound_file = '../dingding.mp3'

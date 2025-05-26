@@ -1,7 +1,11 @@
 # PARAMETERS
 ltn_plausiablity_score = 52.5 # this is the value for desiding how "strict" we are will classifying LTNs. a value of 0 would be every neighbourhood
-							# and a value of 100 would be 0 neighbourhoods
+lower_ltn_plausiablity_score = 40 # for the many ltn scenarios
+							# and a value of 100 would be 0 neighbourhoods and a value of 0 would be every neighbourhood.
                             # around 50-55 is a good value to start with, as from prioir analysis this is a realistic indicator of it being a true LTN zone. 
+                            
+scenarios = ["no_ltn_scenario", "current_ltn_scenario", "more_ltn_scenario"] # The scenarios to run
+
 # These are values to loop through for different runs
 poi_source = "LTNs_tessellation"#"LTNs_tessellation" # railwaystation, grid, neighbourhoods, tessellation, mixed
 prune_measure = "betweenness" # betweenness, closeness, random
