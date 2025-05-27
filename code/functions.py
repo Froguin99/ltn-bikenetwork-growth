@@ -4109,17 +4109,25 @@ def patch_cycle_graph_with_pedestrian_links(neighbourhoods, debug=False):
         # Save cycle graph before patching
         cycle_graph_before = deepcopy(cycle_graph)
 
-        # Patch cycle graph with pedestrian edges
+        # Track added pedestrian edges
+        patched_edges_set = set()
         for origin in exit_node_ids:
             for destination in exit_node_ids:
                 if not cycle_reachability.loc[origin, destination] and combined_reachability.loc[origin, destination]:
                     ped_route_edges = combined_routes[origin][destination]
                     if ped_route_edges:
+                        for u, v, k in ped_route_edges:
+                            patched_edges_set.add((u, v, k))
                         cycle_graph = add_ped_edges_to_cycle_graph(cycle_graph, ped_graph, ped_route_edges)
 
         # Save cycle graph after patching
         cycle_graph_after = cycle_graph
 
+        # Save the patched pedestrian edges 
+        _, edges_before = ox.graph_to_gdfs(cycle_graph_before)
+        _, edges_after  = ox.graph_to_gdfs(cycle_graph_after)
+        patched_edges_gdf = edges_after.loc[~edges_after.index.isin(edges_before.index)]
+        
         # Store results
         results[city_name] = {
             'cycle_graph_before': cycle_graph_before,
@@ -4129,7 +4137,8 @@ def patch_cycle_graph_with_pedestrian_links(neighbourhoods, debug=False):
             'combined_routes': combined_routes,
             'cycle_routes_before': cycle_routes,
             'combined_reachability': combined_reachability,
-            'cycle_reachability_before': cycle_reachability
+            'cycle_reachability_before': cycle_reachability,
+            'patched_edges': patched_edges_gdf
         }
 
         if debug:
