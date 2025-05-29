@@ -1488,7 +1488,8 @@ def write_result(res, mode, placeid, poi_source, prune_measure, suffix, dictnest
     folder_path = os.path.join(PATH["results"], placeid, scenario if scenario else "")
     os.makedirs(folder_path, exist_ok=True)
 
-    file_path = os.path.join(folder_path, filename)
+    # set file path to absolute, normalised path to ensure it works across different OS!
+    file_path = os.path.abspath(os.path.normpath(os.path.join(folder_path, filename)))
 
     with open(file_path, openmode) as f:
         if mode == "pickle":
@@ -1508,6 +1509,7 @@ def write_result(res, mode, placeid, poi_source, prune_measure, suffix, dictnest
                 row = {'network': key}
                 row.update(val)
                 w.writerow(row)
+
 
                 
 
@@ -2737,7 +2739,34 @@ def get_ebc_of_shortest_paths(greedy_triangulation_all_gdf, ltn_nodes, tess_node
 
 
 
+def make_sp_dict(paths_list):
+    """
+    Function to convert a list of paths into a dictionary of shortest paths.
+    """
+    sp = {}
+    for p in paths_list:
+        if len(p) < 2:
+            continue
+        u, v = p[0], p[-1]
+        sp[(u, v)] = p
+        sp[(v, u)] = list(reversed(p))
+    return sp
 
+    # Helper to convert node-path list into edge-path list dict
+def make_sp_edge_dict(paths_list):
+    """
+    Function to convert a list of paths into a dictionary of shortest paths,
+    """
+    sp = {}
+    for p in paths_list:
+        if len(p) < 2:
+            continue
+        # build list of edge tuples
+        edge_list = [(p[i], p[i+1]) for i in range(len(p)-1)]
+        u, v = p[0], p[-1]
+        sp[(u, v)] = edge_list
+        sp[(v, u)] = [(v2, v1) for (v1, v2) in reversed(edge_list)]
+    return sp
 
 
 
@@ -3100,6 +3129,49 @@ def build_greedy_triangulation(ltn_points_gdf, tess_points_gdf):
 
     return greedy_triangulation_gdf, ltn_points_gdf, tess_points_gdf
 
+
+
+def get_sp_demand_weights(node_pairs, shortest_paths, graph, edge_length_key='sp_lts_distance'):
+    """
+    Calculates the weighted demand (based on edge total flow and length) for each path from the dutch PCT scenario.
+    Similar structure to get_sp_ebc_weights.
+    
+    :param node_pairs: List of tuples (start_node, end_node).
+    :param shortest_paths: List of paths (each a list of nodes along the path).
+    :param graph: NetworkX graph with 'total_flow' and length attributes.
+    :param edge_length_key: Key for length in edge attributes (default: 'sp_lts_distance').
+    :return: Dict mapping (start, end) node pairs to demand-based weight.
+    """
+    result_dict = {}
+
+    for i, (start_node, end_node) in enumerate(node_pairs):
+        path = shortest_paths[i]
+
+        # Turn node path into edge pairs
+        edges_in_path = [(path[j], path[j + 1]) for j in range(len(path) - 1)]
+
+        edges_info = []
+        for u, v in edges_in_path:
+            edge_data = graph.get_edge_data(u, v) or graph.get_edge_data(v, u)
+            if edge_data is None:
+                raise ValueError(f"Edge ({u}, {v}) not found in graph for path {path}")
+
+            length = edge_data.get(edge_length_key, 0)
+            flow = edge_data.get('total_flow', 0)
+            edges_info.append((length, flow))
+
+        total_length = sum(length for length, _ in edges_info)
+        num_edges = len(edges_info)
+
+        if num_edges == 0:
+            result_dict[(start_node, end_node)] = 0.0
+            continue
+
+        # Weighted demand: (flow * relative length) averaged across edges
+        weighted_sum = sum(flow * (length / total_length) for length, flow in edges_info) if total_length > 0 else 0.0
+        result_dict[(start_node, end_node)] = weighted_sum / num_edges
+
+    return result_dict
 
 
 def get_sp_ebc_weights(node_pairs, shortest_paths, graph, edge_betweenness, edge_length_key='sp_lts_distance'):
@@ -3778,16 +3850,21 @@ def run_random_growth(placeid, poi_source, investment_levels, weighting, greedy_
 
 
 def get_composite_lcc_length(G, G_biketrack):
-    # get the legth of the largest connected component in the graph G, including the biketrack G_biketrack
+    """
+    Returns the total length of the longest weakly connected component
+    in the merged graph of G and G_biketrack. The component length is the
+    sum of edge lengths (using 'length' attribute).
+    """
     merged = nx.compose(G, G_biketrack)
-    components = list(nx.weakly_connected_components(merged))
-    if not components:
-        return 0.0
-    largest_component_nodes = max(components, key=len)
-    largest_component = merged.subgraph(largest_component_nodes)
-    total_length = sum(data.get('length', 0) for _, _, data in largest_component.edges(data=True))
-    return total_length
+    components = nx.weakly_connected_components(merged)
+    max_length = 0
+    for comp in components:
+        subgraph = merged.subgraph(comp)
+        length = sum(data.get('length', 0) for _, _, data in subgraph.edges(data=True))
+        if length > max_length:
+            max_length = length
 
+    return max_length
 
 
 def compute_total_lengths(graphs):
