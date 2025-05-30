@@ -1,5 +1,3 @@
-# import...
-
 # System
 import copy
 import csv
@@ -47,12 +45,8 @@ import matplotlib.colors as mcolors
 import matplotlib.image as mpimg
 import matplotlib.animation as animation
 
-
 # Geo
 import osmnx as ox
-ox.settings.log_file = True
-ox.settings.requests_timeout = 300
-ox.settings.logs_folder = PATH["logs"]
 import fiona
 import shapely
 from osgeo import gdal, osr
@@ -79,6 +73,23 @@ from geopy.distance import geodesic
 #import ukcensusapi.Nomisweb as Api # not needed at the moment
 import esda
 from shapely.ops import polygonize
+
+#### universally accessible dicts ####
+
+PATH = {
+      "example-data": "../example-data/",
+      "parameters": "../parameters/",
+      "data": "../../bikenwgrowth_external/data/",
+      "plots": "../../bikenwgrowth_external/plots/",
+      "plots_networks": "../../bikenwgrowth_external/plotsnetworks/",
+      "results": "../../bikenwgrowth_external/results/",
+      "results_constricted": "../../bikenwgrowth_external/results_constricted/",
+      "videos": "../../bikenwgrowth_external/videos/",
+      "exports": "../../bikenwgrowth_external/exports/",
+      "exports_json": "../../bikenwgrowth_external/exports_json/",
+      "logs": "../../bikenwgrowth_external/logs/"
+}
+
 
 # ##############################################################
 # # TODO: move this
@@ -1750,9 +1761,6 @@ def load_neighbourhoods(path, debug=False):
     print(f"{len(geopackages)} Cities loaded")
     
     return geopackages
-
-print("Loaded functions.\n")
-
 
 def ox_gpkg_to_graph(gpkg_path, nodes_layer='nodes', edges_layer='edges', u_col='u', v_col='v', key_col='key'):
     """
