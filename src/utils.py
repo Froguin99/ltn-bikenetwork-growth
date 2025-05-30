@@ -87,9 +87,9 @@ PATH = {
       "videos": "../../bikenwgrowth_external/videos/",
       "exports": "../../bikenwgrowth_external/exports/",
       "exports_json": "../../bikenwgrowth_external/exports_json/",
-      "logs": "../../bikenwgrowth_external/logs/"
+      "logs": "../../bikenwgrowth_external/logs/",
+      "exports_gpkg": '../../bikenwgrowth_external/exports_gpkg/'
 }
-
 
 # ##############################################################
 # # TODO: move this
