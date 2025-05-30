@@ -1,23 +1,12 @@
 # System
 import copy
 import csv
-import sys
 import os
-import watermark
 import dill as pickle
 import itertools
 import random
 import zipfile
-from collections import defaultdict
-import pprint
-pp = pprint.PrettyPrinter(indent=4)
 from tqdm.notebook import tqdm
-import warnings
-import shutil
-from pathlib import Path
-from collections import defaultdict
-import requests
-import glob
 from concurrent.futures import ThreadPoolExecutor
 import concurrent.futures
 from copy import deepcopy
@@ -27,52 +16,38 @@ from copy import deepcopy
 import math
 import numpy as np
 import pandas as pd
-from itertools import combinations
-from sklearn.neighbors import NearestNeighbors
 
 # Network
 import igraph as ig
 import networkx as nx
-from networkx.utils import pairwise
 
 # Plotting
-import matplotlib.pyplot as plt
-from matplotlib import cm
 import matplotlib
-from matplotlib.collections import PatchCollection
-from matplotlib.ticker import MaxNLocator
+import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
-import matplotlib.image as mpimg
-import matplotlib.animation as animation
 
 # Geo
 import osmnx as ox
-import fiona
 import shapely
-from osgeo import gdal, osr
 from haversine import haversine, haversine_vector
 import pyproj
-from shapely.geometry import Point, MultiPoint, LineString, Polygon, MultiLineString, MultiPolygon, shape, GeometryCollection
+from shapely.geometry import Point, LineString, Polygon, GeometryCollection
 import shapely.ops as ops
 from shapely.ops import unary_union
 from shapely.ops import nearest_points
-from shapely.plotting import plot_line
 import geopandas as gpd
 import geojson
-import json
 from owslib.wms import WebMapService
 from rasterio.mask import mask as rio_mask  
 from rasterio.features import shapes
 from shapely.geometry import shape, mapping
 from rasterio.io import MemoryFile
-from tesspy import Tessellation
-import momepy
 from pyproj import Transformer
-import geopy
 from geopy.distance import geodesic
-#import ukcensusapi.Nomisweb as Api # not needed at the moment
-import esda
 from shapely.ops import polygonize
+
+#...
+# import Api
 
 #### universally accessible dicts ####
 
@@ -92,38 +67,41 @@ PATH = {
 }
 
 # ##############################################################
-# # TODO: move this
 
-# # dict of placeid:placeinfo
-# # If a city has a proper shapefile through nominatim
-# # In case no (False), manual download of shapefile is necessary, see below
-# cities = {}
-# with open(PATH["parameters"] + 'cities.csv') as f:
-#     csvreader = csv.DictReader(f, delimiter=';')
-#     for row in csvreader:
-#         cities[row['placeid']] = {}
-#         for field in csvreader.fieldnames[1:]:
-#             cities[row['placeid']][field] = row[field]     
-# if debug:
-#     print("\n\n=== Cities ===")
-#     pp.pprint(cities)
-#     print("==============\n\n")
+# dict of placeid:placeinfo
+# If a city has a proper shapefile through nominatim
+# In case no (False), manual download of shapefile is necessary, see below
+def load_cities(PATH, debug):
+    cities = {}
+    with open(PATH["parameters"] + 'cities.csv') as f:
+        csvreader = csv.DictReader(f, delimiter=';')
+        for row in csvreader:
+            cities[row['placeid']] = {}
+            for field in csvreader.fieldnames[1:]:
+                cities[row['placeid']][field] = row[field]     
+    if debug:
+        print("\n\n=== Cities ===")
+        pp.pprint(cities)
+        print("==============\n\n")
+    return cities
 
-# # Create city subfolders  
-# scenario_folders = ["no_ltn_scenario", "more_ltn_scenario", "current_ltn_scenario"]
-# main_folders = ["data", "plots", "plots_networks", "results", "exports", "exports_json", "videos"]
-# for placeid in cities:
-#     for subfolder in main_folders:
-#         base_path = os.path.join(PATH[subfolder], placeid)
-#         if not os.path.exists(base_path):
-#             os.makedirs(base_path)
-#             print(f"Created folder: {base_path}")
-#         for scenario in scenario_folders:
-#             scenario_path = os.path.join(base_path, scenario)
-#             if not os.path.exists(scenario_path):
-#                 os.makedirs(scenario_path)
-#                 print(f"  └─ Created scenario folder: {scenario_path}")
-# ##############################################################
+# Create city subfolders  
+def create_city_subfolders(PATH, cities):
+    scenario_folders = ["no_ltn_scenario", "more_ltn_scenario", "current_ltn_scenario"]
+    main_folders = ["data", "plots", "plots_networks", "results", "exports", "exports_json", "videos"]
+    for placeid in cities:
+        for subfolder in main_folders:
+            base_path = os.path.join(PATH[subfolder], placeid)
+            if not os.path.exists(base_path):
+                os.makedirs(base_path)
+                print(f"Created folder: {base_path}")
+            for scenario in scenario_folders:
+                scenario_path = os.path.join(base_path, scenario)
+                if not os.path.exists(scenario_path):
+                    os.makedirs(scenario_path)
+                    print(f"  └─ Created scenario folder: {scenario_path}")
+    return None
+##############################################################
 
 
 # GRAPH PLOTTING
@@ -217,7 +195,7 @@ def set_analysissubplot(key):
         ax.set_ylim(top = 1)
 
 
-def initplot():
+def initplot(plotparam):
     fig = plt.figure(figsize=(plotparam["bbox"][0]/plotparam["dpi"], plotparam["bbox"][1]/plotparam["dpi"]), dpi=plotparam["dpi"])
     plt.axes().set_aspect('equal')
     plt.axes().set_xmargin(0.01)
@@ -244,7 +222,7 @@ def simplify_ig(G):
     return output
 
 
-def nxdraw(G, networktype, map_center = False, nnids = False, drawfunc = "nx.draw", nodesize = 0, weighted = False, maxwidthsquared = 0, simplified = False):
+def nxdraw(G, networktype, plotparam, map_center = False, nnids = False, drawfunc = "nx.draw", nodesize = 0, weighted = False, maxwidthsquared = 0, simplified = False):
     """Take an igraph graph G and draw it with a networkx drawfunc.
     """
     if simplified:
@@ -622,7 +600,7 @@ def calculate_weight(row):
 
 
 
-def csv_to_ig(p, placeid, parameterid, cleanup=True, weighting=None):
+def csv_to_ig(p, placeid, parameterid, SERVER, cleanup=True, weighting=None):
     """ Load an ig graph from _edges.csv and _nodes.csv
     The edge file must have attributes u,v,osmid,length
     The node file must have attributes y,x,osmid
@@ -1062,7 +1040,7 @@ def greedy_triangulation_routing(G, pois, weighting=None, prune_quantiles = [1],
     return (GTs, GT_abstracts)
     
     
-def poipairs_by_distance(G, pois, weighting=None, return_distances = False):
+def poipairs_by_distance(G, G_carall, pois, weighting=None, return_distances = False):
     """Calculates the (weighted) graph distances on G for a subset of nodes pois.
     Returns all pairs of poi ids in ascending order of their distance. 
     If return_distances, then distances are also returned.
@@ -1553,40 +1531,6 @@ def calculate_metrics_additively(
         GT_prev = copy.deepcopy(GT)
 
     return output, covs
-
-
-def generate_video(placeid, imgname, vformat = "webm", duplicatelastframe = 5, verbose = True):
-    """Generate a video from a set of images using OpenCV
-    """
-    # Code adapted from: https://stackoverflow.com/questions/44947505/how-to-make-a-movie-out-of-images-in-python#44948030
-    
-    images = [img for img in os.listdir(PATH["plots_networks"] + placeid + "/") if img.startswith(placeid + imgname)]
-    images.sort()
-    frame = cv2.imread(os.path.join(PATH["plots_networks"] + placeid + "/", images[0]))
-    height, width, layers = frame.shape
-
-    if vformat == "webm":
-        # https://stackoverflow.com/questions/49530857/python-opencv-video-format-play-in-browser
-        fourcc = cv2.VideoWriter_fourcc(*'vp80')
-        video = cv2.VideoWriter(PATH["videos"] + placeid + "/" + placeid + imgname + '.webm', fourcc, 10, (width, height))
-    elif vformat == "mp4":
-        # https://www.pyimagesearch.com/2016/02/22/writing-to-video-with-opencv/#comment-390650
-        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-        video = cv2.VideoWriter(PATH["videos"] + placeid + "/" + placeid + imgname + '.mp4', fourcc, 10, (width, height))
-
-    for image in images:
-        video.write(cv2.imread(os.path.join(PATH["plots_networks"] + placeid + "/", image)))
-    # Add the last frame duplicatelastframe more times:
-    for i in range(0, duplicatelastframe):
-        video.write(cv2.imread(os.path.join(PATH["plots_networks"] + placeid + "/", images[-1])))
-
-    cv2.destroyAllWindows()
-    video.release()
-    if verbose:
-        print("Video " + placeid + imgname + '.' + vformat + ' generated from ' + str(len(images)) + " frames.")
-
-
-
 
 def write_result(res, mode, placeid, poi_source, prune_measure, suffix, dictnested={}, weighting=None, scenario=None):
     """Write results (pickle or dict to csv), now supports scenario subfolders and scenario-tagged filenames"""
@@ -2253,7 +2197,7 @@ def get_exit_nodes(neighbourhoods, G_biketrack, buffer_distance=5):
     all_buffers = []
     for place_name, gdf in neighbourhoods.items():
         # Explode multi-part geometries and create boundary buffer
-        exploded = gdf.explode().reset_index(drop=True)
+        exploded = gdf.explode(index_parts=False).reset_index(drop=True)
         buffered = exploded.boundary.to_crs(epsg=3857).buffer(buffer_distance).to_crs(exploded.crs)
         # Store buffers with neighbourhood IDs
         buffer_gdf = gpd.GeoDataFrame({
@@ -3459,7 +3403,7 @@ def snap_to_largest_stroke(point, snapthreshold, stroke_gdf):
 
 
 
-def compute_routed_distance_for_GT(row, G):
+def compute_routed_distance_for_GT(row, G, osmid_to_neigh, neigh_to_exits):
     """
     Compute the routed_distance for a given row of greedy_gdf using graph G.
     
@@ -3539,7 +3483,7 @@ def compute_routed_distance_for_GT(row, G):
         
 
 
-def compute_routed_path_for_GT(row, G):
+def compute_routed_path_for_GT(row, G, osmid_to_neigh, neigh_to_exits):
     """
     Compute the shortest path for a given row of greedy_gdf using graph G.
     
@@ -3664,44 +3608,44 @@ def calculate_sp_route_distance(route, G):
 
     return total_length
 
-def add_lsoa_population(lsoa_bound):
-    """
-    Add population data to LSOA GeoDataFrame using UKCensusAPI.
+# def add_lsoa_population(lsoa_bound, placeid):
+#     """
+#     Add population data to LSOA GeoDataFrame using UKCensusAPI.
     
-    Args:
-        lsoa_bound (gpd.GeoDataFrame): Input GeoDataFrame with LSOA codes in 'geo_code'
+#     Args:
+#         lsoa_bound (gpd.GeoDataFrame): Input GeoDataFrame with LSOA codes in 'geo_code'
         
-    Returns:
-        gpd.GeoDataFrame: Original GeoDataFrame with new 'pop' column added
-    """
-    api = Api.Nomisweb(PATH["data"] + placeid)
+#     Returns:
+#         gpd.GeoDataFrame: Original GeoDataFrame with new 'pop' column added
+#     """
+#     api = Api.Nomisweb(PATH["data"] + placeid)
     
-    # Extract LSOA codes and LAD names from input data
-    lsoa_codes = lsoa_bound['geo_code'].tolist()
-    lad_names = lsoa_bound['lad_name'].unique().tolist()
+#     # Extract LSOA codes and LAD names from input data
+#     lsoa_codes = lsoa_bound['geo_code'].tolist()
+#     lad_names = lsoa_bound['lad_name'].unique().tolist()
     
-    # Configure census query
-    query_params = {
-        "CELL": "0",
-        "date": "latest",
-        "RURAL_URBAN": "0",
-        "select": "GEOGRAPHY_CODE,OBS_VALUE",
-        "MEASURES": "20100",
-        "geography": api.get_geo_codes(api.get_lad_codes(lad_names), 
-        Api.Nomisweb.GeoCodeLookup["LSOA11"]) #use 2011 boundaries to match with PCT data
-    }
+#     # Configure census query
+#     query_params = {
+#         "CELL": "0",
+#         "date": "latest",
+#         "RURAL_URBAN": "0",
+#         "select": "GEOGRAPHY_CODE,OBS_VALUE",
+#         "MEASURES": "20100",
+#         "geography": api.get_geo_codes(api.get_lad_codes(lad_names), 
+#         Api.Nomisweb.GeoCodeLookup["LSOA11"]) #use 2011 boundaries to match with PCT data
+#     }
     
-    # Get and filter population data
-    population = api.get_data("KS101EW", query_params) # population table
-    population = population[population.GEOGRAPHY_CODE.isin(lsoa_codes)]
+#     # Get and filter population data
+#     population = api.get_data("KS101EW", query_params) # population table
+#     population = population[population.GEOGRAPHY_CODE.isin(lsoa_codes)]
     
-    # Merge with our lsoa dataframe
-    return lsoa_bound.merge(
-        population[['GEOGRAPHY_CODE', 'OBS_VALUE']],
-        left_on='geo_code',
-        right_on='GEOGRAPHY_CODE',
-        how='left'
-    ).drop(columns=['GEOGRAPHY_CODE']).rename(columns={'OBS_VALUE': 'pop'})
+#     # Merge with our lsoa dataframe
+#     return lsoa_bound.merge(
+#         population[['GEOGRAPHY_CODE', 'OBS_VALUE']],
+#         left_on='geo_code',
+#         right_on='GEOGRAPHY_CODE',
+#         how='left'
+#     ).drop(columns=['GEOGRAPHY_CODE']).rename(columns={'OBS_VALUE': 'pop'})
 
 
 
@@ -3721,7 +3665,7 @@ def get_longest_connected_components(G):
 
 
 
-def get_building_populations(lsoa_bound, boundary):
+def get_building_populations(lsoa_bound, boundary, debug):
     # get buildings for the study area and assign population to them to better obtain who lives within a short distance of the cycle network
     
     buildings = ox.features.features_from_polygon(
@@ -4257,7 +4201,7 @@ def plot_and_save_network_stats(results, output_plot_path, output_csv_path, scen
 
 
 
-def patch_cycle_graph_with_pedestrian_links(neighbourhoods, debug=False):
+def patch_cycle_graph_with_pedestrian_links(neighbourhoods, gdf, debug=False):
     """
     Process each neighbourhood graph to add key pedestrian links into the cycle graph.
 
