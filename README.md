@@ -7,24 +7,24 @@ The code downloads and pre-processes data from OpenStreetMap, prepares points of
 
 **Orignal Paper**: [https://www.nature.com/articles/s41598-022-10783-y](https://www.nature.com/articles/s41598-022-10783-y)  
 
-**Recent conferance paper**: [https://zenodo.org/records/15231749](https://zenodo.org/records/15231749)
+**Recent conference paper**: [https://zenodo.org/records/15231749](https://zenodo.org/records/15231749)
 
 [![Example of using demand based growth on Newcastle Upon Tyne, United Kingdom](readmevideo.gif)]()
 *Example of using demand based growth on Newcastle Upon Tyne, United Kingdom*
 
 ## Instructions
 
-### 1. Git clone the project _without_ the full history 
+### 1. Git clone the project
 
 Run from your terminal:
 
 ```
-git clone -b main --single-branch https://github.com/Froguin99/bikenwgrowth-with-LTNs --depth 1
+git clone https://github.com/Froguin99/ltn-bikenetwork-growth.git
 ```
 
 ### 2. Install the conda environment `growbikenet`
 
-In your terminal, navigate to the project folder `bikenwgrowth` and use [`conda`](https://docs.conda.io/projects/conda/en/latest/index.html)
+In your terminal, navigate to the project folder `ltn-bikenetwork-growth` and use [`conda`](https://docs.conda.io/projects/conda/en/latest/index.html)
 or [`mamba`](https://mamba.readthedocs.io/en/latest/installation/mamba-installation.html)
 or [`micromamba`](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html) to run:
 
@@ -56,8 +56,15 @@ python -m ipykernel install --user --name=growbikenet
 
 This allows you to run Jupyter with the kernel `growbikenet` (Kernel > Change Kernel > growbikenet)
 
+### 3. Install the project package
 
-### 3. Run the code locally
+In your terminal, navigate to `ltn-bikenetwork-growth` and pip install the project package by running:
+
+```
+pip install -e .
+```
+
+### 4. Run the code locally
 
 Single (or few/small) cities can be run locally by a manual, step-by-step execution of Jupyter notebooks:
 
