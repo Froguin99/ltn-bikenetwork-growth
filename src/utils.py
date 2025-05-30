@@ -80,39 +80,39 @@ from geopy.distance import geodesic
 import esda
 from shapely.ops import polygonize
 
-##############################################################
-# TODO: move this
+# ##############################################################
+# # TODO: move this
 
-# dict of placeid:placeinfo
-# If a city has a proper shapefile through nominatim
-# In case no (False), manual download of shapefile is necessary, see below
-cities = {}
-with open(PATH["parameters"] + 'cities.csv') as f:
-    csvreader = csv.DictReader(f, delimiter=';')
-    for row in csvreader:
-        cities[row['placeid']] = {}
-        for field in csvreader.fieldnames[1:]:
-            cities[row['placeid']][field] = row[field]     
-if debug:
-    print("\n\n=== Cities ===")
-    pp.pprint(cities)
-    print("==============\n\n")
+# # dict of placeid:placeinfo
+# # If a city has a proper shapefile through nominatim
+# # In case no (False), manual download of shapefile is necessary, see below
+# cities = {}
+# with open(PATH["parameters"] + 'cities.csv') as f:
+#     csvreader = csv.DictReader(f, delimiter=';')
+#     for row in csvreader:
+#         cities[row['placeid']] = {}
+#         for field in csvreader.fieldnames[1:]:
+#             cities[row['placeid']][field] = row[field]     
+# if debug:
+#     print("\n\n=== Cities ===")
+#     pp.pprint(cities)
+#     print("==============\n\n")
 
-# Create city subfolders  
-scenario_folders = ["no_ltn_scenario", "more_ltn_scenario", "current_ltn_scenario"]
-main_folders = ["data", "plots", "plots_networks", "results", "exports", "exports_json", "videos"]
-for placeid in cities:
-    for subfolder in main_folders:
-        base_path = os.path.join(PATH[subfolder], placeid)
-        if not os.path.exists(base_path):
-            os.makedirs(base_path)
-            print(f"Created folder: {base_path}")
-        for scenario in scenario_folders:
-            scenario_path = os.path.join(base_path, scenario)
-            if not os.path.exists(scenario_path):
-                os.makedirs(scenario_path)
-                print(f"  └─ Created scenario folder: {scenario_path}")
-##############################################################
+# # Create city subfolders  
+# scenario_folders = ["no_ltn_scenario", "more_ltn_scenario", "current_ltn_scenario"]
+# main_folders = ["data", "plots", "plots_networks", "results", "exports", "exports_json", "videos"]
+# for placeid in cities:
+#     for subfolder in main_folders:
+#         base_path = os.path.join(PATH[subfolder], placeid)
+#         if not os.path.exists(base_path):
+#             os.makedirs(base_path)
+#             print(f"Created folder: {base_path}")
+#         for scenario in scenario_folders:
+#             scenario_path = os.path.join(base_path, scenario)
+#             if not os.path.exists(scenario_path):
+#                 os.makedirs(scenario_path)
+#                 print(f"  └─ Created scenario folder: {scenario_path}")
+# ##############################################################
 
 
 # GRAPH PLOTTING
