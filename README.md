@@ -7,24 +7,24 @@ The code downloads and pre-processes data from OpenStreetMap, prepares points of
 
 **Orignal Paper**: [https://www.nature.com/articles/s41598-022-10783-y](https://www.nature.com/articles/s41598-022-10783-y)  
 
-**Recent conferance paper**: [https://zenodo.org/records/15231749](https://zenodo.org/records/15231749)
+**Recent conference paper**: [https://zenodo.org/records/15231749](https://zenodo.org/records/15231749)
 
 [![Example of using demand based growth on Newcastle Upon Tyne, United Kingdom](readmevideo.gif)]()
 *Example of using demand based growth on Newcastle Upon Tyne, United Kingdom*
 
 ## Instructions
 
-### 1. Git clone the project _without_ the full history 
+### 1. Git clone the project
 
 Run from your terminal:
 
 ```
-git clone -b main --single-branch https://github.com/Froguin99/bikenwgrowth-with-LTNs --depth 1
+git clone https://github.com/Froguin99/ltn-bikenetwork-growth.git
 ```
 
 ### 2. Install the conda environment `growbikenet`
 
-In your terminal, navigate to the project folder `bikenwgrowth` and use [`conda`](https://docs.conda.io/projects/conda/en/latest/index.html)
+In your terminal, navigate to the project folder `ltn-bikenetwork-growth` and use [`conda`](https://docs.conda.io/projects/conda/en/latest/index.html)
 or [`mamba`](https://mamba.readthedocs.io/en/latest/installation/mamba-installation.html)
 or [`micromamba`](https://mamba.readthedocs.io/en/latest/installation/micromamba-installation.html) to run:
 
@@ -56,17 +56,23 @@ python -m ipykernel install --user --name=growbikenet
 
 This allows you to run Jupyter with the kernel `growbikenet` (Kernel > Change Kernel > growbikenet)
 
+### 3. Install the project package
 
-### 3. Run the code locally
+In your terminal, navigate to `ltn-bikenetwork-growth` and pip install the project package by running:
+
+```
+pip install -e .
+```
+
+### 4. Run the code locally
 
 Single (or few/small) cities can be run locally by a manual, step-by-step execution of Jupyter notebooks:
 
-1. Populate [`parameters/cities.csv`](parameters/cities.csv), see below. Leave default values to run the code on two small cities. Currently only local authority districts in the North East of the UK can be used. However, if you'd like to get further places working, raise an issue of the tracker and we can work on it!
+1. Populate [`parameters/cities.csv`](parameters/cities.csv), see below. Currently only local authority districts in the North-East of the UK can be used. However, if you'd like to get further places working, raise an issue of the tracker and we can work on it!
 2. Navigate to the [`code`](code/) folder.
 3. Run notebooks 01, 02, 03 once to download and prepare all networks and POIs.  
-4. Run notebooks 04, 05, 06 for each parameter set (see below), set in [`parameters/parameters.py`](parameters/parameters.py)
-
-
+4. Run notebooks 04, 05 to run the processing and analysis for location
+5. Run 06 once more than one location has been processed and analysed to get further analysis 
 
 ## Folder structure and output
 The main folder/repo is `bikenwgrowth`, containing Jupyter notebooks (`code/`), preprocessed data (`data/`), parameters (`parameters/`), result plots (`plots/`), HPC server scripts and jobs (`scripts/`).
@@ -75,6 +81,11 @@ Most of the generated data output (network plots, videos, results, exports, logs
 
 
 ## Populating cities.csv
+
+`cities.csv` holds the location of the place to analyse. As we use demand data bespoke to England and Wales throughout the analysis, only locations within these areas should be used. The file takes places in the format `placeid;nominatimstring;countryid;name`, so to run Newcastle we would use `newcastle;Newcastle Upon Tyne;gbr;Newcastle Upon Tyne`, whilst North Tyneside would take the form `north_tyneside;North Tyneside;gbr;North Tyneside`. **note** Currently only one location can be input at a time. Multi-location analysis will be included in a future update, but for now it is recommended to run through the code up to (but not including) notebook `06` with each place at a time.  
+
+## Parameters
+The `parameters.yml` contains values which can be changed to alter the analysis. It is not recommended to change any of the values currently.
 
 ### Checking nominatimstring  
 * Go to e.g. [https://nominatim.openstreetmap.org/ui/search.html?q=paris%2C+france](https://nominatim.openstreetmap.org/ui/search.html?q=paris%2C+france) and enter the search string. If a correct polygon (or multipolygon) pops up it should be fine. If not leave the field empty and acquire a shape file, see below.
