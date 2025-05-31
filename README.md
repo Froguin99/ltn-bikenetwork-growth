@@ -68,12 +68,11 @@ pip install -e .
 
 Single (or few/small) cities can be run locally by a manual, step-by-step execution of Jupyter notebooks:
 
-1. Populate [`parameters/cities.csv`](parameters/cities.csv), see below. Leave default values to run the code on two small cities. Currently only local authority districts in the North East of the UK can be used. However, if you'd like to get further places working, raise an issue of the tracker and we can work on it!
+1. Populate [`parameters/cities.csv`](parameters/cities.csv), see below. Currently only local authority districts in the North-East of the UK can be used. However, if you'd like to get further places working, raise an issue of the tracker and we can work on it!
 2. Navigate to the [`code`](code/) folder.
 3. Run notebooks 01, 02, 03 once to download and prepare all networks and POIs.  
-4. Run notebooks 04, 05, 06 for each parameter set (see below), set in [`parameters/parameters.py`](parameters/parameters.py)
-
-
+4. Run notebooks 04, 05 to run the processing and analysis for location
+5. Run 06 once more than one location has been processed and analysed to get further analysis 
 
 ## Folder structure and output
 The main folder/repo is `bikenwgrowth`, containing Jupyter notebooks (`code/`), preprocessed data (`data/`), parameters (`parameters/`), result plots (`plots/`), HPC server scripts and jobs (`scripts/`).
@@ -82,6 +81,11 @@ Most of the generated data output (network plots, videos, results, exports, logs
 
 
 ## Populating cities.csv
+
+`cities.csv` holds the location of the place to analyse. As we use demand data bespoke to England and Wales throughout the analysis, only locations within these areas should be used. The file takes places in the format `placeid;nominatimstring;countryid;name`, so to run Newcastle we would use `newcastle;Newcastle Upon Tyne;gbr;Newcastle Upon Tyne`, whilst North Tyneside would take the form `north_tyneside;North Tyneside;gbr;North Tyneside`. **note** Currently only one location can be input at a time. Multi-location analysis will be included in a future update, but for now it is recommended to run through the code up to (but not including) notebook `06` with each place at a time.  
+
+## Parameters
+The `parameters.yml` contains values which can be changed to alter the analysis. It is not recommended to change any of the values currently.
 
 ### Checking nominatimstring  
 * Go to e.g. [https://nominatim.openstreetmap.org/ui/search.html?q=paris%2C+france](https://nominatim.openstreetmap.org/ui/search.html?q=paris%2C+france) and enter the search string. If a correct polygon (or multipolygon) pops up it should be fine. If not leave the field empty and acquire a shape file, see below.
