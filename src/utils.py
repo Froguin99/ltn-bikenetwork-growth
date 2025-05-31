@@ -3201,45 +3201,55 @@ def build_greedy_triangulation(ltn_points_gdf, tess_points_gdf):
 
 def get_sp_demand_weights(node_pairs, shortest_paths, graph, edge_length_key='sp_lts_distance'):
     """
-    Calculates the weighted demand (based on edge total flow and length) for each path from the dutch PCT scenario.
-    Similar structure to get_sp_ebc_weights.
-    
-    :param node_pairs: List of tuples (start_node, end_node).
-    :param shortest_paths: List of paths (each a list of nodes along the path).
-    :param graph: NetworkX graph with 'total_flow' and length attributes.
-    :param edge_length_key: Key for length in edge attributes (default: 'sp_lts_distance').
-    :return: Dict mapping (start, end) node pairs to demand-based weight.
+    Calculate the demand from the PCT for each node pair's shortest path.
+    For each edge in the path, weight its total_flow by the proportion of its length
+    relative to the total length of the path and average across the number of edges.
     """
     result_dict = {}
-
-    for i, (start_node, end_node) in enumerate(node_pairs):
-        path = shortest_paths[i]
-
-        # Turn node path into edge pairs
-        edges_in_path = [(path[j], path[j + 1]) for j in range(len(path) - 1)]
-
+    
+    for node_pair in node_pairs:
+        # Try to retrieve the path using the node pair as key (or its reverse if undirected)
+        if node_pair in shortest_paths:
+            path = shortest_paths[node_pair]
+        elif tuple(reversed(node_pair)) in shortest_paths:
+            path = shortest_paths[tuple(reversed(node_pair))]
+        else:
+            raise KeyError(f"Path for node pair {node_pair} not found in shortest_paths")
+        
+        # If the path is already a list of edges, use it directly.
+        # Otherwise, assume it is a list of nodes and convert it to edge pairs.
+        if path and isinstance(path[0], tuple) and len(path[0]) == 2:
+            edges_in_path = path
+        else:
+            edges_in_path = [(path[j], path[j + 1]) for j in range(len(path) - 1)]
+        
         edges_info = []
         for u, v in edges_in_path:
-            edge_data = graph.get_edge_data(u, v) or graph.get_edge_data(v, u)
+            edge_data = graph.get_edge_data(u, v)
+            if edge_data is None:
+                edge_data = graph.get_edge_data(v, u)
             if edge_data is None:
                 raise ValueError(f"Edge ({u}, {v}) not found in graph for path {path}")
-
+            
             length = edge_data.get(edge_length_key, 0)
             flow = edge_data.get('total_flow', 0)
             edges_info.append((length, flow))
-
+        
         total_length = sum(length for length, _ in edges_info)
         num_edges = len(edges_info)
-
+        
         if num_edges == 0:
-            result_dict[(start_node, end_node)] = 0.0
+            result_dict[node_pair] = 0.0
             continue
-
-        # Weighted demand: (flow * relative length) averaged across edges
+        
+        # average value along the path
         weighted_sum = sum(flow * (length / total_length) for length, flow in edges_info) if total_length > 0 else 0.0
-        result_dict[(start_node, end_node)] = weighted_sum / num_edges
-
+        result_dict[node_pair] = weighted_sum / num_edges
+    
     return result_dict
+
+
+
 
 
 def get_sp_ebc_weights(node_pairs, shortest_paths, graph, edge_betweenness, edge_length_key='sp_lts_distance'):
@@ -3403,7 +3413,7 @@ def snap_to_largest_stroke(point, snapthreshold, stroke_gdf):
 
 
 
-def compute_routed_distance_for_GT(row, G, osmid_to_neigh, neigh_to_exits):
+def compute_routed_distance_for_GT(row, G, osmid_to_neigh, neigh_to_exits): 
     """
     Compute the routed_distance for a given row of greedy_gdf using graph G.
     
@@ -3481,7 +3491,7 @@ def compute_routed_distance_for_GT(row, G, osmid_to_neigh, neigh_to_exits):
         except nx.NetworkXNoPath:
             return np.nan
         
-
+        
 
 def compute_routed_path_for_GT(row, G, osmid_to_neigh, neigh_to_exits):
     """
@@ -3575,6 +3585,7 @@ def compute_routed_path_for_GT(row, G, osmid_to_neigh, neigh_to_exits):
 
 
 
+
 def calculate_sp_route_distance(route, G):
     """
     Find the total distance of a shortest path route in a given graph.
@@ -3665,57 +3676,57 @@ def get_longest_connected_components(G):
 
 
 
-def get_building_populations(lsoa_bound, boundary, debug):
-    # get buildings for the study area and assign population to them to better obtain who lives within a short distance of the cycle network
+# def get_building_populations(lsoa_bound, boundary, debug):
+#     # get buildings for the study area and assign population to them to better obtain who lives within a short distance of the cycle network
     
-    buildings = ox.features.features_from_polygon(
-        boundary.unary_union,
-        tags={'building': True}
-    )
-    buildings = buildings[['building', 'geometry']].reset_index(drop=True)
+#     buildings = ox.features.features_from_polygon(
+#         boundary.unary_union,
+#         tags={'building': True}
+#     )
+#     buildings = buildings[['building', 'geometry']].reset_index(drop=True)
 
-    # drop non-residential buildings
-    building_categories = ['apartments', 'terrace', 'residential', 'hall_of_residence',
-        'dormitory', 'tower', 'house', 'shelter', 'semidetached_house',
-        'bungalow', 'detached', 'cabin', 'yes', 'barracks', 'annexe',
-        'farm', 'houseboat', 'static_caravan'] # buliding types to keep
+#     # drop non-residential buildings
+#     building_categories = ['apartments', 'terrace', 'residential', 'hall_of_residence',
+#         'dormitory', 'tower', 'house', 'shelter', 'semidetached_house',
+#         'bungalow', 'detached', 'cabin', 'yes', 'barracks', 'annexe',
+#         'farm', 'houseboat', 'static_caravan'] # buliding types to keep
 
-    buildings = buildings[
-        buildings['building'].str.lower().isin([c.lower() for c in building_categories])
-    ].copy().reset_index(drop=True)
+#     buildings = buildings[
+#         buildings['building'].str.lower().isin([c.lower() for c in building_categories])
+#     ].copy().reset_index(drop=True)
 
-    # Keep only rows where the geometry is a Polygon or MultiPolygon (some buildings are tagged as points)
-    buildings = buildings[buildings.geometry.type.isin(['Polygon', 'MultiPolygon'])].reset_index(drop=True)
-    buildings = buildings.to_crs(lsoa_bound.crs)
-    buildings = gpd.overlay(buildings, lsoa_bound, how='intersection')
-    buildings = buildings[['building', 'geometry']]
+#     # Keep only rows where the geometry is a Polygon or MultiPolygon (some buildings are tagged as points)
+#     buildings = buildings[buildings.geometry.type.isin(['Polygon', 'MultiPolygon'])].reset_index(drop=True)
+#     buildings = buildings.to_crs(lsoa_bound.crs)
+#     buildings = gpd.overlay(buildings, lsoa_bound, how='intersection')
+#     buildings = buildings[['building', 'geometry']]
 
-    buildings = buildings.to_crs(epsg=3857) # to work in meters
-    buildings['area'] = buildings['geometry'].area # find area
-    if debug:
-        print(buildings['building'].unique())
-    buildings = buildings.to_crs(4326)
-    buildings = buildings.to_crs(lsoa_bound.crs)
-    buildings_joined = gpd.sjoin(buildings, lsoa_bound[['pop', 'geometry']], how='left', predicate='intersects')
+#     buildings = buildings.to_crs(epsg=3857) # to work in meters
+#     buildings['area'] = buildings['geometry'].area # find area
+#     if debug:
+#         print(buildings['building'].unique())
+#     buildings = buildings.to_crs(4326)
+#     buildings = buildings.to_crs(lsoa_bound.crs)
+#     buildings_joined = gpd.sjoin(buildings, lsoa_bound[['pop', 'geometry']], how='left', predicate='intersects')
 
-    # Compute the total building area per LSOA.
-    total_area = buildings_joined.groupby('index_right')['area'].sum().reset_index().rename(columns={'area': 'total_area'})
-    buildings_joined = buildings_joined.merge(total_area, on='index_right')
-    buildings_joined['pop_exact'] = (buildings_joined['area'] / buildings_joined['total_area']) * buildings_joined['pop']
-    def assign_pop(group): # assign population to buildings, but avoid decimal numbers as you can't have 0.7 of a person!
-        group['pop_floor'] = np.floor(group['pop_exact'])
-        group['pop_frac'] = group['pop_exact'] - group['pop_floor']
-        remainder = int(group['pop'].iloc[0] - group['pop_floor'].sum())
-        group['pop_assigned'] = group['pop_floor']
-        if remainder > 0:
-            group.loc[group['pop_frac'].nlargest(remainder).index, 'pop_assigned'] += 1
-        return group.astype({'pop_assigned': 'int'})
-    buildings = buildings_joined.groupby('index_right', group_keys=False).apply(assign_pop)
-    if debug:
-        buildings.plot(column='pop_assigned')
-    buildings = buildings[['building', 'geometry', 'pop_assigned']].reset_index(drop=True)
+#     # Compute the total building area per LSOA.
+#     total_area = buildings_joined.groupby('index_right')['area'].sum().reset_index().rename(columns={'area': 'total_area'})
+#     buildings_joined = buildings_joined.merge(total_area, on='index_right')
+#     buildings_joined['pop_exact'] = (buildings_joined['area'] / buildings_joined['total_area']) * buildings_joined['pop']
+#     def assign_pop(group): # assign population to buildings, but avoid decimal numbers as you can't have 0.7 of a person!
+#         group['pop_floor'] = np.floor(group['pop_exact'])
+#         group['pop_frac'] = group['pop_exact'] - group['pop_floor']
+#         remainder = int(group['pop'].iloc[0] - group['pop_floor'].sum())
+#         group['pop_assigned'] = group['pop_floor']
+#         if remainder > 0:
+#             group.loc[group['pop_frac'].nlargest(remainder).index, 'pop_assigned'] += 1
+#         return group.astype({'pop_assigned': 'int'})
+#     buildings = buildings_joined.groupby('index_right', group_keys=False).apply(assign_pop)
+#     if debug:
+#         buildings.plot(column='pop_assigned')
+#     buildings = buildings[['building', 'geometry', 'pop_assigned']].reset_index(drop=True)
 
-    return buildings
+#     return buildings
 
 
 def find_bounding_lines(centroids, lines_gdf):
@@ -3752,6 +3763,80 @@ def find_bounding_lines(centroids, lines_gdf):
         result[cent_idx] = bound_idxs
     return result
 
+
+def run_random_growth_no_ltn(placeid,poi_source,investment_levels,weighting,greedy_gdf,G_caralls,G_weighted,all_centroids,tess_gdf,sp_length,sp_path,debug=False):
+    """
+    Random growth for “no LTN” scenarios: same as run_random_growth with any referance to LTNs removed.
+    """
+    shuffled_edges = greedy_gdf.sample(frac=1)  
+    random_edges = pd.Series(False, index=greedy_gdf.index)
+    distance = 0.0
+    edge_pointer = 0
+
+    global_processed_pairs_random = set()
+    cumulative_GT_indices_random = set()
+    Random_GT_abstracts = []
+    Random_GT_abstracts_gdf = []
+    Random_GTs = []
+    Random_GTs_gdf = []
+
+    for D in tqdm(investment_levels,
+                  desc="Random growth (no LTN) routing for meters of investment"):
+        # pick edges
+        remaining_budget = D - distance
+        if remaining_budget > 0 and edge_pointer < len(shuffled_edges):
+            cumdist = shuffled_edges.iloc[edge_pointer:]['distance'].cumsum()
+            to_add = cumdist <= remaining_budget
+            n_add = to_add.sum()
+            if n_add > 0:
+                idxs = shuffled_edges.iloc[edge_pointer:edge_pointer + n_add].index
+                random_edges[idxs] = True
+                distance += cumdist.iloc[n_add - 1]
+                edge_pointer += n_add
+        GT_abstract_gdf = greedy_gdf[random_edges].copy()
+        Random_GT_abstracts_gdf.append(GT_abstract_gdf)
+        GT_abstract_nx = gdf_to_nx_graph(GT_abstract_gdf)
+        Random_GT_abstracts.append(GT_abstract_nx)
+        routenodepairs = list(GT_abstract_nx.edges())
+
+        # route pairs
+        GT_indices = set()
+        for u, v in routenodepairs:
+            pair = (u, v)
+            if pair in global_processed_pairs_random or (v, u) in global_processed_pairs_random:
+                continue
+            if (u, v) in sp_path:
+                GT_indices.update(sp_path[(u, v)])
+            global_processed_pairs_random.add(pair)
+        cumulative_GT_indices_random.update(GT_indices)
+
+        if not cumulative_GT_indices_random:
+            Random_GTs.append(nx.Graph())
+            Random_GTs_gdf.append(gpd.GeoDataFrame())
+            continue
+
+        GT = G_caralls.subgraph(cumulative_GT_indices_random)
+        for a, b, data in GT.edges(data=True):
+            if 'length' in data:
+                data['weight'] = data['length']
+
+        Random_GTs.append(GT)
+        _, GT_edges = ox.graph_to_gdfs(GT)
+        Random_GTs_gdf.append(GT_edges)
+
+        if debug:
+            ax = GT_edges.to_crs(epsg=3857).plot()
+            tess_gdf.to_crs(epsg=3857).plot(ax=ax, color='green', markersize=5)
+            ax.set_title(f"No-LTN run: D={D}, edges={GT.number_of_edges()}")
+
+    return {
+        "placeid": placeid,
+        "prune_measure": "random",
+        "poi_source": poi_source,
+        "prune_quantiles": investment_levels,
+        "GTs": Random_GTs,
+        "GT_abstracts": Random_GT_abstracts
+    }
 
 def run_random_growth(placeid, poi_source, investment_levels, weighting, greedy_gdf, G_caralls, G_weighted, all_centroids, exit_points, sp_length, sp_path, ltn_gdf, tess_gdf, debug=False):
     '''Creates a bike network through random order, given a list of input edges and a budget. Used to create many random runs.'''
@@ -3883,7 +3968,8 @@ def run_random_growth(placeid, poi_source, investment_levels, weighting, greedy_
             Random_GTs_gdf.append(gpd.GeoDataFrame())
             continue
         # Build GT subgraph and store
-        GT = G_caralls[placeid].subgraph(cumulative_GT_indices_random)
+        #GT = G_caralls[placeid].subgraph(cumulative_GT_indices_random)
+        GT = G_caralls.subgraph(cumulative_GT_indices_random)
         for a, b, data in GT.edges(data=True):
             if 'length' in data:
                 data['weight'] = data['length']
