@@ -1,0 +1,62 @@
+{
+      "car30": {
+            "network_type": "drive",
+            "custom_filter": "[\"maxspeed\"~\"^30$|^20$|^15$|^10$|^5$|^20 mph|^15 mph|^10 mph|^5 mph\"]",
+            "export": true,
+            "retain_all": true
+      },
+      "carall": {
+            "network_type": "drive",
+            "custom_filter": null,
+            "export": true,
+            "retain_all": false
+      },
+      "bike_cyclewaytrack": {
+            "network_type": "bike",
+            "custom_filter": "[\"cycleway\"~\"track\"]",
+            "export": false,
+            "retain_all": true
+      },
+      "bike_highwaycycleway": {
+            "network_type": "bike",
+            "custom_filter": "[\"highway\"~\"cycleway\"]",
+            "export": false,
+            "retain_all": true
+      },
+      "bike_designatedpath": {
+            "network_type": "all",
+            "custom_filter": "[\"highway\"~\"path\"][\"bicycle\"~\"designated\"]",
+            "export": false,
+            "retain_all": true
+      },
+      "bike_cyclewayrighttrack": {
+            "network_type": "bike",
+            "custom_filter": "[\"cycleway:right\"~\"track\"]",
+            "export": false,
+            "retain_all": true
+      },
+      "bike_cyclewaylefttrack": {
+            "network_type": "bike",
+            "custom_filter": "[\"cycleway:left\"~\"track\"]",
+            "export": false,
+            "retain_all": true
+      },
+      "bike_cyclestreet": {
+            "network_type": "bike",
+            "custom_filter": "[\"cyclestreet\"]",
+            "export": false,
+            "retain_all": true
+      },
+      "bike_bicycleroad": {
+            "network_type": "bike",
+            "custom_filter": "[\"bicycle_road\"]",
+            "export": false,
+            "retain_all": true
+      },
+      "bike_livingstreet": {
+            "network_type": "bike",
+            "custom_filter": "[\"highway\"~\"living_street\"]",
+            "export": false,
+            "retain_all": true
+      }
+}
