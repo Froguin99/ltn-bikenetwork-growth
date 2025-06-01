@@ -1626,7 +1626,79 @@ def write_result_covers(res, mode, placeid, suffix, dictnested={}, weighting=Non
                 w.writerow(row)
 
 
+def plot_investment_growth_gifs(
+    graph_list,
+    output_path,
+    G_biketrackcarall,
+    G_biketrack,
+    ltn_points=None,
+    tess_points=None,
+    neighbourhoods=None,
+    investment_levels= None,
+    fps=4,
+    title_prefix="Iteration",
+    crs_epsg=3857,
+    figsize=(12, 8)):
+    
+    G_biketrackcarall_edges = ox.graph_to_gdfs(G_biketrackcarall, nodes=False).to_crs(epsg=crs_epsg)
+    G_biketrack_edges = ox.graph_to_gdfs(G_biketrack, nodes=False).to_crs(epsg=crs_epsg)
+    ltn_points_crs = ltn_points.to_crs(epsg=crs_epsg) if ltn_points is not None else None
+    tess_points_crs = tess_points.to_crs(epsg=crs_epsg) if tess_points is not None else None
+    ltns = None
+    if neighbourhoods:
+        _, ltns_gdf = next(iter(neighbourhoods.items()))
+        ltns = ltns_gdf.to_crs(epsg=crs_epsg)
 
+    # Precompute edges for each graph frame
+    edges_collections = []
+    for G in graph_list:
+        if len(G.edges()) == 0:
+            edges_collections.append(None)
+            continue
+        if 'crs' not in G.graph:
+            G.graph['crs'] = f"epsg:{crs_epsg}" # routed graphs might not have CRS set
+        _, edges_gdf = ox.graph_to_gdfs(G)
+        edges_gdf = edges_gdf.to_crs(epsg=crs_epsg)
+        # Extract line coordinates for LineCollection
+        lines = [list(zip(geom.xy[0], geom.xy[1])) for geom in edges_gdf.geometry]
+        lc = LineCollection(lines, colors='orange', linewidths=2, zorder=5)
+        edges_collections.append(lc)
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Plot static background once
+    G_biketrackcarall_edges.plot(ax=ax, color='lightgrey', linewidth=0.6, alpha=0.5, zorder=0)
+    G_biketrack_edges.plot(ax=ax, color='turquoise', linewidth=1.0, alpha=0.9, zorder=1)
+
+    if ltn_points_crs is not None:
+        ltn_points_crs.plot(ax=ax, color='red', markersize=10, zorder=6)
+    if tess_points_crs is not None:
+        tess_points_crs.plot(ax=ax, color='green', markersize=5, zorder=6)
+    if ltns is not None:
+        ltns.plot(ax=ax, color='blue', alpha=0.3, zorder=2)
+
+    # speed up the plotting process by not plotting points every time
+    current_edges = None
+    def update(idx):
+        nonlocal current_edges
+        # Remove old edges
+        if current_edges is not None:
+            current_edges.remove()
+            current_edges = None
+        # Add new edges
+        if edges_collections[idx] is not None:
+            current_edges = edges_collections[idx]
+            ax.add_collection(current_edges)
+        else:
+            print(f"Graph {idx+1} has no edges, skipping.")
+        level = investment_levels[idx]
+        ax.set_title(f"{title_prefix} {idx + 1} - Investment Level: {level}", fontsize=14)
+        ax.axis('off')
+    ani = animation.FuncAnimation(fig, update, frames=len(graph_list), repeat=False)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    ani.save(output_path, writer=animation.PillowWriter(fps=fps), dpi=150)  # dpi lower for speed
+    print(f"GIF saved to: {output_path}")
+    plt.close(fig)
 
 def gdf_to_geojson(gdf, properties):
     """Turn a gdf file into a GeoJSON.
