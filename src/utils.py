@@ -25,6 +25,9 @@ import networkx as nx
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from matplotlib.collections import LineCollection
+from matplotlib.animation import FuncAnimation 
+from matplotlib import animation 
 
 # Geo
 import osmnx as ox
