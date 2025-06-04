@@ -4221,7 +4221,6 @@ def process_and_save_buffers_parallel(G_list, name, rerun, path_base, buffer_wal
     """Process and save buffers in parallel (much faster!)."""
     filename = f"{path_base}_{name}.pickle"
     if rerun or not os.path.exists(filename):
-        print(f"Generating {name} buffers with parallel processing...")
         buffers = []
         with ThreadPoolExecutor(max_workers=4) as executor:
             # Map graphs to create_buffer in parallel
@@ -4237,6 +4236,11 @@ def process_and_save_buffers_parallel(G_list, name, rerun, path_base, buffer_wal
             buffers = pickle.load(f)
     return buffers
 
+def overlap_size_percent(ref_graph, graph):
+    # find overlap between existing cycle network and grown network
+    total_edges     = ref_graph.number_of_edges()
+    overlapping     = sum(1 for u, v in ref_graph.edges() if graph.has_edge(u, v))
+    return (overlapping / total_edges * 100) if total_edges else 0
 
 def get_edge_path(G, path_nodes):
     # find routes between points on a graph
