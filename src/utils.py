@@ -3725,20 +3725,21 @@ def calculate_sp_route_distance(route, G):
 
 
 def get_longest_connected_components(G):
-    """Returns the longest connected components of a graph."""
-    components = nx.weakly_connected_components(G)
-    max_length = 0
-    max_component = None
-    for comp in components:
-        subgraph = G.subgraph(comp)
-        length = sum(data['length'] for _, _, data in subgraph.edges(data=True))
-        if length > max_length:
-            max_length = length
-            max_component = comp
+    """Returns the total length of the longest weakly connected component."""
+    # Map each node to its component label
+    components = list(nx.weakly_connected_components(G))
+    node_to_component = {}
+    for idx, comp in enumerate(components):
+        for node in comp:
+            node_to_component[node] = idx
 
-    return sum(data['length'] for _, _, data in G.subgraph(max_component).edges(data=True)) if max_component else 0
+    # Accumulate edge lengths per component
+    comp_lengths = [0] * len(components)
+    for u, v, data in G.edges(data=True):
+        comp_idx = node_to_component[u]
+        comp_lengths[comp_idx] += data.get('length', 0)
 
-
+    return max(comp_lengths) if comp_lengths else 0
 
 # def get_building_populations(lsoa_bound, boundary, debug):
 #     # get buildings for the study area and assign population to them to better obtain who lives within a short distance of the cycle network
