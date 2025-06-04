@@ -10,6 +10,7 @@ from tqdm.notebook import tqdm
 from concurrent.futures import ThreadPoolExecutor
 import concurrent.futures
 from copy import deepcopy
+import json
 
 
 # Math/Data
@@ -1535,56 +1536,44 @@ def calculate_metrics_additively(
 
     return output, covs
 
-def write_result(res, mode, placeid, poi_source, prune_measure, suffix, dictnested={}, weighting=None, scenario=None):
-    """Write results (pickle or dict to csv), now supports scenario subfolders and scenario-tagged filenames"""
-    if mode == "pickle":
-        openmode = "wb"
+def write_result(results, file_format, placeid, poi_source, prune_measure, extension, weighting=None, scenario=None):
+    """
+    Save results to a file with standardized naming convention and directory structure
+    
+    Args:
+        results: Data to be saved
+        file_format: File format ("pickle")
+        placeid: Identifier for the geographic area (newcastle, leeds etc)
+        poi_source: Source of POI data 
+        prune_measure: Growth metric used (betweeness, demand etc)
+        extension: File extension (.pickle)
+        weighting: If True, adds "weighted" to filename (default: None)
+        scenario: Scenario name (default: None)
+    """
+    if not scenario:
+        raise ValueError("Scenario must be provided")
+    
+    # Convert to absolute path and normalize
+    base_dir = os.path.abspath(PATH["results"])
+    output_dir = os.path.join(base_dir, placeid, scenario)
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Construct filename
+    filename = f"{placeid}_poi_{poi_source}_{prune_measure}"
+    if weighting:
+        filename += "_weighted"
+    filename += f"_{scenario}{extension}"
+    
+    # Create complete filepath
+    filepath = os.path.join(output_dir, filename)
+
+    # Save results 
+    if file_format == "pickle":
+        with open(filepath, 'wb') as f:
+            pickle.dump(results, f)
     else:
-        openmode = "w"
-
-    # Modify filename based on weighting flag
-    weighting_str = "_weighted" if weighting else ""
-    scenario_str = f"_{scenario}" if scenario else ""
-
-    # Construct the filename
-    if poi_source:
-        if prune_measure:
-            filename = f"{placeid}_poi_{poi_source}_{prune_measure}{weighting_str}{scenario_str}{suffix}"
-        else:
-            filename = f"{placeid}_poi_{poi_source}{weighting_str}{scenario_str}{suffix}"
-    else:
-        if prune_measure:
-            filename = f"{placeid}_{prune_measure}{weighting_str}{scenario_str}{suffix}"
-        else:
-            filename = f"{placeid}{weighting_str}{scenario_str}{suffix}"
-
-    # Create scenario folder path
-    folder_path = os.path.join(PATH["results"], placeid, scenario if scenario else "")
-    os.makedirs(folder_path, exist_ok=True)
-
-    # set file path to absolute, normalised path to ensure it works across different OS!
-    file_path = os.path.abspath(os.path.normpath(os.path.join(folder_path, filename)))
-
-    with open(file_path, openmode) as f:
-        if mode == "pickle":
-            pickle.dump(res, f)
-        elif mode == "dict":
-            w = csv.writer(f)
-            w.writerow(res.keys())
-            try:  # dict with list values
-                w.writerows(zip(*res.values()))
-            except:  # dict with single values
-                w.writerow(res.values())
-        elif mode == "dictnested":
-            fields = ['network'] + list(dictnested.keys())
-            w = csv.DictWriter(f, fields)
-            w.writeheader()
-            for key, val in sorted(res.items()):
-                row = {'network': key}
-                row.update(val)
-                w.writerow(row)
-
-
+        raise NotImplementedError(f"File format '{file_format}' not supported")
+    print(f"Results saved to: {filepath}")
                 
 
 def write_result_covers(res, mode, placeid, suffix, dictnested={}, weighting=None):
@@ -4097,31 +4086,31 @@ def get_composite_lcc_length(G, G_biketrack):
 
 
 def compute_total_lengths(graphs):
-    # used to find the length of each bicycle network at each stage of growth
-    return [sum(nx.get_edge_attributes(G, 'length').values()) for G in graphs]
+     # used to find the length of each bicycle network at each stage of growth
+    return [sum(data['length'] for _, _, data in G.edges(data=True) if 'length' in data) for G in graphs]
+
 
 def compute_abs_deviation(series, baseline):
     # find the difference against the baseline (random growth)
-    return [s - b for s, b in zip(series, baseline)]
+    return [float(s) - float(b) for s, b in zip(series, baseline)]
 
 
 def compute_total_investment_lengths(graphs, distance_cost):
     """
     Compute the investment-weighted length of each graph in a list.
+    Takes in a list of graphs and a dictionary mapping cost to build (should be 0 for existing infrastucutre, 1 for everything else).
+    Returns a list of total investment lengths for each graph.
     """
     results = []
     for G in graphs:
         if not isinstance(G, nx.Graph) or len(G.edges) == 0:
             results.append(0)
             continue # this is for if during random growth an empty graph is created - rare but happens
-
         for u, v, data in G.edges(data=True):
             highway_type = data.get('highway', 'unclassified')
             length = data.get('length', 0)
             data['investment_length'] = length * distance_cost.get(highway_type, 1)
-
         results.append(sum(nx.get_edge_attributes(G, 'investment_length').values()))
-
     return results
 
 
@@ -4184,17 +4173,27 @@ def compute_lcc_lengths(graph_list, G_biketrack):
 
 
 def load_results(path):
-    if os.path.exists(path):
-        with open(path, 'rb') as f:
+    abs_path = os.path.abspath(path)
+    if os.path.exists(abs_path):
+        with open(abs_path, 'rb') as f:
             return pickle.load(f)
     return {}
 
-def save_results(results, pickle_path, csv_path):
+def save_results(results_list, pickle_path, json_path):
+    # takes results as a list of (name, values) pairs
+    results_dict = {name: values for name, values in results_list}
+    # Save as pickle
     with open(pickle_path, 'wb') as f:
-        pickle.dump(results, f)
-    df = pd.DataFrame({k: pd.Series(v) for k, v in results.items()})
-    df.to_csv(csv_path, index=False)
-
+        pickle.dump(results_dict, f)
+    if os.path.exists(json_path):
+        with open(json_path, 'r') as f:
+            existing_data = json.load(f)
+    else:
+        existing_data = {}
+    existing_data.update(results_dict)
+    # Save updated data to JSON
+    with open(json_path, 'w') as f:
+        json.dump(existing_data, f, indent=2)
 
 
 
