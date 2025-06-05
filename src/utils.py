@@ -4215,14 +4215,43 @@ def run_random_growth(placeid, poi_source, investment_levels, weighting, greedy_
     return results
 
 
+def count_disconnected_components(graphs, G_biketrack):
+    """
+    For each graph in the list, returns the number of disconnected components
+    in the composed graph of G and G_biketrack. Converts to undirected before counting.
+    
+    Args:
+        graphs (list of networkx.Graph or DiGraph): List of graphs to analyze.
+        G_biketrack (networkx.Graph or DiGraph): The biketrack graph to merge with.
+        
+    Returns:
+        pd.Series: Number of disconnected components per composed graph.
+    """
+
+    counts = []
+    for G in graphs:
+        if G.is_directed(): # check
+            G = G.to_undirected()
+        merged = nx.compose(G, G_biketrack)
+        num_components = nx.number_connected_components(merged)
+        counts.append(num_components)
+    
+    return pd.Series(counts)
+
+
 def get_composite_lcc_length(G, G_biketrack):
     """
     Returns the total length of the longest weakly connected component
     in the merged graph of G and G_biketrack. The component length is the
     sum of edge lengths (using 'length' attribute).
     """
+    if G.is_directed():
+        G = G.to_undirected()
+    if G_biketrack.is_directed():
+        G_biketrack = G_biketrack.to_undirected()
+
     merged = nx.compose(G, G_biketrack)
-    components = nx.weakly_connected_components(merged)
+    components = nx.connected_components(merged)
     max_length = 0
     for comp in components:
         subgraph = merged.subgraph(comp)
