@@ -3723,11 +3723,28 @@ def calculate_sp_route_distance(route, G):
 #     ).drop(columns=['GEOGRAPHY_CODE']).rename(columns={'OBS_VALUE': 'pop'})
 
 
+def calc_directness(graph_list):
+    """
+    Given a list of NetworkX graphs, returns a list where each entry is:
+      (sum of 'sp_true_distance' over edges) / (sum of 'eucl_dist' over edges),
+    or None if the denominator is zero.
+    Needs the graph to have the network distance and euclidan distance pre calcualted (04)
+    """
+    series = []
+    for G in graph_list:
+        net_dist  = sum(data.get("eucl_dist", 0) for _, _, data in G.edges(data=True))
+        eucl_dist = sum(data.get("sp_true_distance", 0) for _, _, data in G.edges(data=True))
+        series.append(eucl_dist / net_dist if net_dist != 0 else None)
+    return series
 
 def get_longest_connected_components(G):
-    """Returns the total length of the longest weakly connected component."""
+    """Returns the total length of the longest connected component."""
+    # If G is directed, convert to undirected so we can use connected_components
+    if G.is_directed():
+        G = G.to_undirected()
+
     # Map each node to its component label
-    components = list(nx.weakly_connected_components(G))
+    components = list(nx.connected_components(G))
     node_to_component = {}
     for idx, comp in enumerate(components):
         for node in comp:
@@ -3740,6 +3757,136 @@ def get_longest_connected_components(G):
         comp_lengths[comp_idx] += data.get('length', 0)
 
     return max(comp_lengths) if comp_lengths else 0
+
+
+
+def calculate_global_efficiency(G, numnodepairs=500, normalized=True, weight='weight', debug=False):
+    """Calculates global network efficiency for a graph G.
+    See https://www.sciencedirect.com/science/article/pii/S097286001500002X
+    for Latora and Marchioiri's definition of global efficiency."""
+    
+    if G is None or len(G) < 2:
+        return 0.0
+    nodes = list(G.nodes)
+    N = len(nodes)
+    
+    if N > numnodepairs:
+        sampled_nodes = random.sample(nodes, numnodepairs)
+    else:
+        sampled_nodes = nodes
+    S = len(sampled_nodes)
+    if S < 2:
+        return 0.0
+    
+    total_efficiency = 0.0
+    considered_pairs = S * (S - 1)  
+    
+    for u in sampled_nodes:
+        try:
+            lengths = nx.single_source_dijkstra_path_length(G, u, weight=weight)
+            for v in sampled_nodes:
+                if u == v: continue
+                d = lengths.get(v, float('inf'))
+                if 0 < d < float('inf'):
+                    total_efficiency += 1 / d
+        except nx.NetworkXNoPath:
+            continue
+    
+    if considered_pairs == 0:
+        return 0.0
+    
+    # Always use considered_pairs for unnormalized
+    EG = total_efficiency / considered_pairs  # average efficiency
+    
+    if not normalized:
+        return EG  # Directly return average efficiency of sampled pairs
+    
+    # Normalise
+    for node in sampled_nodes:
+        if 'x' not in G.nodes[node] or 'y' not in G.nodes[node]:
+            raise KeyError("Nodes need 'x' and 'y' for normalization.")
+    
+    ideal_total = 0.0
+    for u, v in itertools.permutations(sampled_nodes, 2):
+        x1, y1 = G.nodes[u]['x'], G.nodes[u]['y']
+        x2, y2 = G.nodes[v]['x'], G.nodes[v]['y']
+        distance = ((x1-x2)**2 + (y1-y2)**2)**0.5
+        if distance > 0:
+            ideal_total += 1 / distance
+    
+    if ideal_total == 0:
+        return 0.0
+    
+
+    ideal_avg = ideal_total / considered_pairs
+    normalized_efficiency = EG / ideal_avg
+    
+    if debug:
+        print(f"Actual Avg: {EG}, Ideal Avg: {ideal_avg}, Normalized: {normalized_efficiency}")
+    
+    return normalized_efficiency
+
+
+def calculate_local_efficiency(G, numnodepairs=500, weight='weight', debug=False):
+    """Calculates spatially normalized local efficiency for graph G.
+    Based on Latora and Marchiori's definition, normalized by Euclidean distances.
+    """
+    if G is None or len(G) < 2:
+        return 0.0
+
+    nodes = list(G.nodes)
+    N = len(nodes)
+
+    if N > numnodepairs:
+        sampled_nodes = random.sample(nodes, numnodepairs)
+    else:
+        sampled_nodes = nodes
+
+    total_local_efficiency = 0.0
+    counted_nodes = 0
+
+    for node in sampled_nodes:
+        neighbors = list(G.neighbors(node))
+        if len(neighbors) < 2:
+            continue
+
+        subgraph = G.subgraph(neighbors)
+        S = len(subgraph)
+        considered_pairs = S * (S - 1)
+
+        # Check coordinates
+        for n in neighbors:
+            if 'x' not in G.nodes[n] or 'y' not in G.nodes[n]:
+                raise KeyError(f"Node {n} missing 'x' or 'y' coordinate for normalization.")
+
+        # Compute actual efficiency within the neighbourhood subgraph
+        all_lengths = dict(nx.all_pairs_dijkstra_path_length(subgraph, weight=weight))
+        actual_total = sum(1 / d for u, lengths in all_lengths.items() for v, d in lengths.items() if u != v and 0 < d < float('inf'))
+        EG = actual_total / considered_pairs if considered_pairs > 0 else 0.0
+
+        # Compute ideal (Euclidean) efficiency
+        ideal_total = 0.0
+        for u, v in itertools.permutations(neighbors, 2):
+            x1, y1 = G.nodes[u]['x'], G.nodes[u]['y']
+            x2, y2 = G.nodes[v]['x'], G.nodes[v]['y']
+            euclidean = ((x1 - x2)**2 + (y1 - y2)**2)**0.5
+            if euclidean > 0:
+                ideal_total += 1 / euclidean
+        ideal_avg = ideal_total / considered_pairs if considered_pairs > 0 else 0.0
+
+        if ideal_avg > 0:
+            normalized_local = EG / ideal_avg
+            total_local_efficiency += normalized_local
+            counted_nodes += 1
+
+            if debug:
+                print(f"Node {node}: Actual Avg = {EG:.4f}, Ideal Avg = {ideal_avg:.4f}, Normalized = {normalized_local:.4f}")
+
+    if counted_nodes == 0:
+        return 0.0
+
+    return total_local_efficiency / counted_nodes
+
 
 # def get_building_populations(lsoa_bound, boundary, debug):
 #     # get buildings for the study area and assign population to them to better obtain who lives within a short distance of the cycle network
