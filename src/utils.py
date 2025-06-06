@@ -3758,6 +3758,38 @@ def get_longest_connected_components(G):
 
     return max(comp_lengths) if comp_lengths else 0
 
+def average_node_degree_composed(graphs, G_biketrack):
+    """
+    For each graph in the list, compose it with G_biketrack and compute the
+    average node degree of the resulting undirected graph.
+
+    Args:
+        graphs (list of networkx.Graph or DiGraph): List of input graphs.
+        G_biketrack (networkx.Graph or DiGraph): The biketrack graph to merge with.
+
+    Returns:
+        pd.Series: Average node degree for each composed graph.
+    """
+    # Ensure G_biketrack is undirected and immutable for efficiency
+    if G_biketrack.is_directed():
+        G_biketrack = G_biketrack.to_undirected()
+    G_biketrack = nx.freeze(G_biketrack)
+
+    avg_degrees = []
+    for G in graphs:
+        G_undirected = G.to_undirected() if G.is_directed() else G
+        merged = nx.compose(G_undirected, G_biketrack)
+
+        degrees = merged.degree()
+        total_degree = sum(dict(degrees).values())
+        node_count = merged.number_of_nodes()
+
+        avg_degree = total_degree / node_count if node_count > 0 else 0
+        avg_degrees.append(avg_degree)
+
+
+    return avg_degrees
+
 
 
 def calculate_global_efficiency(G, numnodepairs=500, normalized=True, weight='weight', debug=False):
