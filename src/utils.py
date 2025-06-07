@@ -4406,6 +4406,58 @@ def save_results(results_list, pickle_path, json_path):
 
 
 
+def compute_street_coverage(buffer_list, edges, simplify_tolerance=10):
+    """Compute length and percent of edges covered by buffer geometries.
+    """
+    if edges.empty:
+        return [0] * len(buffer_list), [0] * len(buffer_list)
+
+    network_crs = edges.crs
+    total_network_length = edges["length"].sum()
+    # Simplify and prepare edges
+    proj_crs = network_crs if network_crs.is_projected else "EPSG:3857"
+    edges_proj = edges.to_crs(proj_crs)
+    edges_proj["geometry"] = edges_proj.geometry.simplify(simplify_tolerance, preserve_topology=True)
+    edges_simplified = edges_proj.to_crs(network_crs).reset_index(drop=True)
+    edges_sindex = edges_simplified.sindex
+    previously_selected = set()
+    lengths = []
+    percentages = []
+
+    for buffer_gdf in buffer_list:
+        if buffer_gdf.empty:
+            # Still record previous cumulative values
+            seg_length = edges_simplified.loc[list(previously_selected), "length"].sum()
+            lengths.append(seg_length)
+            percentages.append((seg_length / total_network_length * 100) if total_network_length else 0)
+            continue
+
+        buffer_proj = buffer_gdf.to_crs(proj_crs).copy()
+        buffer_proj["geometry"] = buffer_proj.geometry.simplify(simplify_tolerance, preserve_topology=True)
+        unioned_geom = unary_union(buffer_proj.geometry)
+
+        if unioned_geom.is_empty:
+            seg_length = edges_simplified.loc[list(previously_selected), "length"].sum()
+            lengths.append(seg_length)
+            percentages.append((seg_length / total_network_length * 100) if total_network_length else 0)
+            continue
+
+        unioned_geom = gpd.GeoSeries([unioned_geom], crs=proj_crs).to_crs(network_crs).iloc[0]
+
+        # Find new intersecting edges
+        candidate_idx = list(edges_sindex.intersection(unioned_geom.bounds))
+        candidate_edges = edges_simplified.iloc[candidate_idx]
+        new_covered_idx = candidate_edges[candidate_edges.intersects(unioned_geom)].index
+
+        # Update selected set
+        previously_selected.update(new_covered_idx)
+
+        # Compute cumulative covered length
+        seg_length = edges_simplified.loc[list(previously_selected), "length"].sum()
+        lengths.append(seg_length)
+        percentages.append((seg_length / total_network_length * 100) if total_network_length else 0)
+
+    return lengths, percentages
 
 
 def create_buffer(G, buffer_walk, simplify_tolerance=10, prev_edges=None, prev_union=None):
@@ -4443,6 +4495,30 @@ def process_and_save_buffers_parallel(G_list, name, rerun, path_base, buffer_wal
         with open(filename, "rb") as f:
             buffers = pickle.load(f)
     return buffers
+
+def seed_point_coverage(buffers, points):
+    """
+    Count how many *unique* seed points are covered cumulatively at each step.
+    Once a point is covered, it stays counted in future iterations.
+    This is to deal with the simiplification tolerance of the buffers.
+    """
+    covered_indices = set()
+    coverage_progression = []
+
+    for buf in buffers:
+        if buf.empty:
+            coverage_progression.append(len(covered_indices))
+            continue
+        # Query points that intersect the current buffer
+        matching_idx = points.sindex.query(buf.geometry, predicate='intersects')
+        new_indices = set(matching_idx[1])  # Indices of newly covered points
+        # Update the covered set
+        covered_indices.update(new_indices)
+        # Record the current total
+        coverage_progression.append(len(covered_indices))
+
+    return coverage_progression
+
 
 def overlap_size_percent(ref_graph, graph):
     # find overlap between existing cycle network and grown network
