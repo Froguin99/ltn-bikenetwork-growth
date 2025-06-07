@@ -11,7 +11,7 @@ scenarios:
 
 # These are values to loop through for different runs
 poi_source: "LTNs_tessellation" #"LTNs_tessellation" # railwaystation, grid, neighbourhoods, tessellation, mixed
-prune_measure: "betweenness" # betweenness, closeness, random
+prune_measure: "betweenness" # betweenness, closeness
 weighting: True # True, False
 methods_plotting: False # choose if we show the methods in plots as the code runs
 export: True # chose to export geopackages mid-way through running, for use in QGIS etc.
