@@ -10,6 +10,7 @@ from tqdm.notebook import tqdm
 from concurrent.futures import ThreadPoolExecutor
 import concurrent.futures
 from copy import deepcopy
+import json
 
 
 # Math/Data
@@ -25,6 +26,9 @@ import networkx as nx
 import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors
+from matplotlib.collections import LineCollection
+from matplotlib.animation import FuncAnimation 
+from matplotlib import animation 
 
 # Geo
 import osmnx as ox
@@ -1532,56 +1536,44 @@ def calculate_metrics_additively(
 
     return output, covs
 
-def write_result(res, mode, placeid, poi_source, prune_measure, suffix, dictnested={}, weighting=None, scenario=None):
-    """Write results (pickle or dict to csv), now supports scenario subfolders and scenario-tagged filenames"""
-    if mode == "pickle":
-        openmode = "wb"
+def write_result(results, file_format, placeid, poi_source, prune_measure, extension, weighting=None, scenario=None):
+    """
+    Save results to a file with standardized naming convention and directory structure
+    
+    Args:
+        results: Data to be saved
+        file_format: File format ("pickle")
+        placeid: Identifier for the geographic area (newcastle, leeds etc)
+        poi_source: Source of POI data 
+        prune_measure: Growth metric used (betweeness, demand etc)
+        extension: File extension (.pickle)
+        weighting: If True, adds "weighted" to filename (default: None)
+        scenario: Scenario name (default: None)
+    """
+    if not scenario:
+        raise ValueError("Scenario must be provided")
+    
+    # Convert to absolute path and normalize
+    base_dir = os.path.abspath(PATH["results"])
+    output_dir = os.path.join(base_dir, placeid, scenario)
+    os.makedirs(output_dir, exist_ok=True)
+    
+    # Construct filename
+    filename = f"{placeid}_poi_{poi_source}_{prune_measure}"
+    if weighting:
+        filename += "_weighted"
+    filename += f"_{scenario}{extension}"
+    
+    # Create complete filepath
+    filepath = os.path.join(output_dir, filename)
+
+    # Save results 
+    if file_format == "pickle":
+        with open(filepath, 'wb') as f:
+            pickle.dump(results, f)
     else:
-        openmode = "w"
-
-    # Modify filename based on weighting flag
-    weighting_str = "_weighted" if weighting else ""
-    scenario_str = f"_{scenario}" if scenario else ""
-
-    # Construct the filename
-    if poi_source:
-        if prune_measure:
-            filename = f"{placeid}_poi_{poi_source}_{prune_measure}{weighting_str}{scenario_str}{suffix}"
-        else:
-            filename = f"{placeid}_poi_{poi_source}{weighting_str}{scenario_str}{suffix}"
-    else:
-        if prune_measure:
-            filename = f"{placeid}_{prune_measure}{weighting_str}{scenario_str}{suffix}"
-        else:
-            filename = f"{placeid}{weighting_str}{scenario_str}{suffix}"
-
-    # Create scenario folder path
-    folder_path = os.path.join(PATH["results"], placeid, scenario if scenario else "")
-    os.makedirs(folder_path, exist_ok=True)
-
-    # set file path to absolute, normalised path to ensure it works across different OS!
-    file_path = os.path.abspath(os.path.normpath(os.path.join(folder_path, filename)))
-
-    with open(file_path, openmode) as f:
-        if mode == "pickle":
-            pickle.dump(res, f)
-        elif mode == "dict":
-            w = csv.writer(f)
-            w.writerow(res.keys())
-            try:  # dict with list values
-                w.writerows(zip(*res.values()))
-            except:  # dict with single values
-                w.writerow(res.values())
-        elif mode == "dictnested":
-            fields = ['network'] + list(dictnested.keys())
-            w = csv.DictWriter(f, fields)
-            w.writeheader()
-            for key, val in sorted(res.items()):
-                row = {'network': key}
-                row.update(val)
-                w.writerow(row)
-
-
+        raise NotImplementedError(f"File format '{file_format}' not supported")
+    print(f"Results saved to: {filepath}")
                 
 
 def write_result_covers(res, mode, placeid, suffix, dictnested={}, weighting=None):
@@ -1626,7 +1618,79 @@ def write_result_covers(res, mode, placeid, suffix, dictnested={}, weighting=Non
                 w.writerow(row)
 
 
+def plot_investment_growth_gifs(
+    graph_list,
+    output_path,
+    G_biketrackcarall,
+    G_biketrack,
+    ltn_points=None,
+    tess_points=None,
+    neighbourhoods=None,
+    investment_levels= None,
+    fps=4,
+    title_prefix="Iteration",
+    crs_epsg=3857,
+    figsize=(12, 8)):
+    
+    G_biketrackcarall_edges = ox.graph_to_gdfs(G_biketrackcarall, nodes=False).to_crs(epsg=crs_epsg)
+    G_biketrack_edges = ox.graph_to_gdfs(G_biketrack, nodes=False).to_crs(epsg=crs_epsg)
+    ltn_points_crs = ltn_points.to_crs(epsg=crs_epsg) if ltn_points is not None else None
+    tess_points_crs = tess_points.to_crs(epsg=crs_epsg) if tess_points is not None else None
+    ltns = None
+    if neighbourhoods:
+        _, ltns_gdf = next(iter(neighbourhoods.items()))
+        ltns = ltns_gdf.to_crs(epsg=crs_epsg)
 
+    # Precompute edges for each graph frame
+    edges_collections = []
+    for G in graph_list:
+        if len(G.edges()) == 0:
+            edges_collections.append(None)
+            continue
+        if 'crs' not in G.graph:
+            G.graph['crs'] = f"epsg:{crs_epsg}" # routed graphs might not have CRS set
+        _, edges_gdf = ox.graph_to_gdfs(G)
+        edges_gdf = edges_gdf.to_crs(epsg=crs_epsg)
+        # Extract line coordinates for LineCollection
+        lines = [list(zip(geom.xy[0], geom.xy[1])) for geom in edges_gdf.geometry]
+        lc = LineCollection(lines, colors='orange', linewidths=2, zorder=5)
+        edges_collections.append(lc)
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Plot static background once
+    G_biketrackcarall_edges.plot(ax=ax, color='lightgrey', linewidth=0.6, alpha=0.5, zorder=0)
+    G_biketrack_edges.plot(ax=ax, color='turquoise', linewidth=1.0, alpha=0.9, zorder=1)
+
+    if ltn_points_crs is not None:
+        ltn_points_crs.plot(ax=ax, color='red', markersize=10, zorder=6)
+    if tess_points_crs is not None:
+        tess_points_crs.plot(ax=ax, color='green', markersize=5, zorder=6)
+    if ltns is not None:
+        ltns.plot(ax=ax, color='blue', alpha=0.3, zorder=2)
+
+    # speed up the plotting process by not plotting points every time
+    current_edges = None
+    def update(idx):
+        nonlocal current_edges
+        # Remove old edges
+        if current_edges is not None:
+            current_edges.remove()
+            current_edges = None
+        # Add new edges
+        if edges_collections[idx] is not None:
+            current_edges = edges_collections[idx]
+            ax.add_collection(current_edges)
+        else:
+            print(f"Graph {idx+1} has no edges, skipping.")
+        level = investment_levels[idx]
+        ax.set_title(f"{title_prefix} {idx + 1} - Investment Level: {level}", fontsize=14)
+        ax.axis('off')
+    ani = animation.FuncAnimation(fig, update, frames=len(graph_list), repeat=False)
+    os.makedirs(os.path.dirname(output_path), exist_ok=True)
+    ani.save(output_path, writer=animation.PillowWriter(fps=fps), dpi=150)  # dpi lower for speed
+    print(f"GIF saved to: {output_path}")
+    plt.close(fig)
 
 def gdf_to_geojson(gdf, properties):
     """Turn a gdf file into a GeoJSON.
@@ -3659,21 +3723,201 @@ def calculate_sp_route_distance(route, G):
 #     ).drop(columns=['GEOGRAPHY_CODE']).rename(columns={'OBS_VALUE': 'pop'})
 
 
+def calc_directness(graph_list):
+    """
+    Given a list of NetworkX graphs, returns a list where each entry is:
+      (sum of 'sp_true_distance' over edges) / (sum of 'eucl_dist' over edges),
+    or None if the denominator is zero.
+    Needs the graph to have the network distance and euclidan distance pre calcualted (04)
+    """
+    series = []
+    for G in graph_list:
+        net_dist  = sum(data.get("eucl_dist", 0) for _, _, data in G.edges(data=True))
+        eucl_dist = sum(data.get("sp_true_distance", 0) for _, _, data in G.edges(data=True))
+        series.append(eucl_dist / net_dist if net_dist != 0 else None)
+    return series
 
 def get_longest_connected_components(G):
-    """Returns the longest connected components of a graph."""
-    components = nx.weakly_connected_components(G)
-    max_length = 0
-    max_component = None
-    for comp in components:
-        subgraph = G.subgraph(comp)
-        length = sum(data['length'] for _, _, data in subgraph.edges(data=True))
-        if length > max_length:
-            max_length = length
-            max_component = comp
+    """Returns the total length of the longest connected component."""
+    # If G is directed, convert to undirected so we can use connected_components
+    if G.is_directed():
+        G = G.to_undirected()
 
-    return sum(data['length'] for _, _, data in G.subgraph(max_component).edges(data=True)) if max_component else 0
+    # Map each node to its component label
+    components = list(nx.connected_components(G))
+    node_to_component = {}
+    for idx, comp in enumerate(components):
+        for node in comp:
+            node_to_component[node] = idx
 
+    # Accumulate edge lengths per component
+    comp_lengths = [0] * len(components)
+    for u, v, data in G.edges(data=True):
+        comp_idx = node_to_component[u]
+        comp_lengths[comp_idx] += data.get('length', 0)
+
+    return max(comp_lengths) if comp_lengths else 0
+
+def average_node_degree_composed(graphs, G_biketrack):
+    """
+    For each graph in the list, compose it with G_biketrack and compute the
+    average node degree of the resulting undirected graph.
+
+    Args:
+        graphs (list of networkx.Graph or DiGraph): List of input graphs.
+        G_biketrack (networkx.Graph or DiGraph): The biketrack graph to merge with.
+
+    Returns:
+        pd.Series: Average node degree for each composed graph.
+    """
+    # Ensure G_biketrack is undirected and immutable for efficiency
+    if G_biketrack.is_directed():
+        G_biketrack = G_biketrack.to_undirected()
+    G_biketrack = nx.freeze(G_biketrack)
+
+    avg_degrees = []
+    for G in graphs:
+        G_undirected = G.to_undirected() if G.is_directed() else G
+        merged = nx.compose(G_undirected, G_biketrack)
+
+        degrees = merged.degree()
+        total_degree = sum(dict(degrees).values())
+        node_count = merged.number_of_nodes()
+
+        avg_degree = total_degree / node_count if node_count > 0 else 0
+        avg_degrees.append(avg_degree)
+
+
+    return avg_degrees
+
+
+
+def calculate_global_efficiency(G, numnodepairs=500, normalized=True, weight='weight', debug=False):
+    """Calculates global network efficiency for a graph G.
+    See https://www.sciencedirect.com/science/article/pii/S097286001500002X
+    for Latora and Marchioiri's definition of global efficiency."""
+    
+    if G is None or len(G) < 2:
+        return 0.0
+    nodes = list(G.nodes)
+    N = len(nodes)
+    
+    if N > numnodepairs:
+        sampled_nodes = random.sample(nodes, numnodepairs)
+    else:
+        sampled_nodes = nodes
+    S = len(sampled_nodes)
+    if S < 2:
+        return 0.0
+    
+    total_efficiency = 0.0
+    considered_pairs = S * (S - 1)  
+    
+    for u in sampled_nodes:
+        try:
+            lengths = nx.single_source_dijkstra_path_length(G, u, weight=weight)
+            for v in sampled_nodes:
+                if u == v: continue
+                d = lengths.get(v, float('inf'))
+                if 0 < d < float('inf'):
+                    total_efficiency += 1 / d
+        except nx.NetworkXNoPath:
+            continue
+    
+    if considered_pairs == 0:
+        return 0.0
+    
+    # Always use considered_pairs for unnormalized
+    EG = total_efficiency / considered_pairs  # average efficiency
+    
+    if not normalized:
+        return EG  # Directly return average efficiency of sampled pairs
+    
+    # Normalise
+    for node in sampled_nodes:
+        if 'x' not in G.nodes[node] or 'y' not in G.nodes[node]:
+            raise KeyError("Nodes need 'x' and 'y' for normalization.")
+    
+    ideal_total = 0.0
+    for u, v in itertools.permutations(sampled_nodes, 2):
+        x1, y1 = G.nodes[u]['x'], G.nodes[u]['y']
+        x2, y2 = G.nodes[v]['x'], G.nodes[v]['y']
+        distance = ((x1-x2)**2 + (y1-y2)**2)**0.5
+        if distance > 0:
+            ideal_total += 1 / distance
+    
+    if ideal_total == 0:
+        return 0.0
+    
+
+    ideal_avg = ideal_total / considered_pairs
+    normalized_efficiency = EG / ideal_avg
+    
+    if debug:
+        print(f"Actual Avg: {EG}, Ideal Avg: {ideal_avg}, Normalized: {normalized_efficiency}")
+    
+    return normalized_efficiency
+
+
+def calculate_local_efficiency(G, numnodepairs=500, weight='weight', debug=False):
+    """Calculates spatially normalized local efficiency for graph G.
+    Based on Latora and Marchiori's definition, normalized by Euclidean distances.
+    """
+    if G is None or len(G) < 2:
+        return 0.0
+
+    nodes = list(G.nodes)
+    N = len(nodes)
+
+    if N > numnodepairs:
+        sampled_nodes = random.sample(nodes, numnodepairs)
+    else:
+        sampled_nodes = nodes
+
+    total_local_efficiency = 0.0
+    counted_nodes = 0
+
+    for node in sampled_nodes:
+        neighbors = list(G.neighbors(node))
+        if len(neighbors) < 2:
+            continue
+
+        subgraph = G.subgraph(neighbors)
+        S = len(subgraph)
+        considered_pairs = S * (S - 1)
+
+        # Check coordinates
+        for n in neighbors:
+            if 'x' not in G.nodes[n] or 'y' not in G.nodes[n]:
+                raise KeyError(f"Node {n} missing 'x' or 'y' coordinate for normalization.")
+
+        # Compute actual efficiency within the neighbourhood subgraph
+        all_lengths = dict(nx.all_pairs_dijkstra_path_length(subgraph, weight=weight))
+        actual_total = sum(1 / d for u, lengths in all_lengths.items() for v, d in lengths.items() if u != v and 0 < d < float('inf'))
+        EG = actual_total / considered_pairs if considered_pairs > 0 else 0.0
+
+        # Compute ideal (Euclidean) efficiency
+        ideal_total = 0.0
+        for u, v in itertools.permutations(neighbors, 2):
+            x1, y1 = G.nodes[u]['x'], G.nodes[u]['y']
+            x2, y2 = G.nodes[v]['x'], G.nodes[v]['y']
+            euclidean = ((x1 - x2)**2 + (y1 - y2)**2)**0.5
+            if euclidean > 0:
+                ideal_total += 1 / euclidean
+        ideal_avg = ideal_total / considered_pairs if considered_pairs > 0 else 0.0
+
+        if ideal_avg > 0:
+            normalized_local = EG / ideal_avg
+            total_local_efficiency += normalized_local
+            counted_nodes += 1
+
+            if debug:
+                print(f"Node {node}: Actual Avg = {EG:.4f}, Ideal Avg = {ideal_avg:.4f}, Normalized = {normalized_local:.4f}")
+
+    if counted_nodes == 0:
+        return 0.0
+
+    return total_local_efficiency / counted_nodes
 
 
 # def get_building_populations(lsoa_bound, boundary, debug):
@@ -4003,14 +4247,43 @@ def run_random_growth(placeid, poi_source, investment_levels, weighting, greedy_
     return results
 
 
+def count_disconnected_components(graphs, G_biketrack):
+    """
+    For each graph in the list, returns the number of disconnected components
+    in the composed graph of G and G_biketrack. Converts to undirected before counting.
+    
+    Args:
+        graphs (list of networkx.Graph or DiGraph): List of graphs to analyze.
+        G_biketrack (networkx.Graph or DiGraph): The biketrack graph to merge with.
+        
+    Returns:
+        pd.Series: Number of disconnected components per composed graph.
+    """
+
+    counts = []
+    for G in graphs:
+        if G.is_directed(): # check
+            G = G.to_undirected()
+        merged = nx.compose(G, G_biketrack)
+        num_components = nx.number_connected_components(merged)
+        counts.append(num_components)
+    
+    return pd.Series(counts)
+
+
 def get_composite_lcc_length(G, G_biketrack):
     """
     Returns the total length of the longest weakly connected component
     in the merged graph of G and G_biketrack. The component length is the
     sum of edge lengths (using 'length' attribute).
     """
+    if G.is_directed():
+        G = G.to_undirected()
+    if G_biketrack.is_directed():
+        G_biketrack = G_biketrack.to_undirected()
+
     merged = nx.compose(G, G_biketrack)
-    components = nx.weakly_connected_components(merged)
+    components = nx.connected_components(merged)
     max_length = 0
     for comp in components:
         subgraph = merged.subgraph(comp)
@@ -4022,31 +4295,31 @@ def get_composite_lcc_length(G, G_biketrack):
 
 
 def compute_total_lengths(graphs):
-    # used to find the length of each bicycle network at each stage of growth
-    return [sum(nx.get_edge_attributes(G, 'length').values()) for G in graphs]
+     # used to find the length of each bicycle network at each stage of growth
+    return [sum(data['length'] for _, _, data in G.edges(data=True) if 'length' in data) for G in graphs]
+
 
 def compute_abs_deviation(series, baseline):
     # find the difference against the baseline (random growth)
-    return [s - b for s, b in zip(series, baseline)]
+    return [float(s) - float(b) for s, b in zip(series, baseline)]
 
 
 def compute_total_investment_lengths(graphs, distance_cost):
     """
     Compute the investment-weighted length of each graph in a list.
+    Takes in a list of graphs and a dictionary mapping cost to build (should be 0 for existing infrastucutre, 1 for everything else).
+    Returns a list of total investment lengths for each graph.
     """
     results = []
     for G in graphs:
         if not isinstance(G, nx.Graph) or len(G.edges) == 0:
             results.append(0)
             continue # this is for if during random growth an empty graph is created - rare but happens
-
         for u, v, data in G.edges(data=True):
             highway_type = data.get('highway', 'unclassified')
             length = data.get('length', 0)
             data['investment_length'] = length * distance_cost.get(highway_type, 1)
-
         results.append(sum(nx.get_edge_attributes(G, 'investment_length').values()))
-
     return results
 
 
@@ -4109,20 +4382,82 @@ def compute_lcc_lengths(graph_list, G_biketrack):
 
 
 def load_results(path):
-    if os.path.exists(path):
-        with open(path, 'rb') as f:
+    abs_path = os.path.abspath(path)
+    if os.path.exists(abs_path):
+        with open(abs_path, 'rb') as f:
             return pickle.load(f)
     return {}
 
-def save_results(results, pickle_path, csv_path):
+def save_results(results_list, pickle_path, json_path):
+    # takes results as a list of (name, values) pairs
+    results_dict = {name: values for name, values in results_list}
+    # Save as pickle
     with open(pickle_path, 'wb') as f:
-        pickle.dump(results, f)
-    df = pd.DataFrame({k: pd.Series(v) for k, v in results.items()})
-    df.to_csv(csv_path, index=False)
+        pickle.dump(results_dict, f)
+    if os.path.exists(json_path):
+        with open(json_path, 'r') as f:
+            existing_data = json.load(f)
+    else:
+        existing_data = {}
+    existing_data.update(results_dict)
+    # Save updated data to JSON
+    with open(json_path, 'w') as f:
+        json.dump(existing_data, f, indent=2)
 
 
 
+def compute_street_coverage(buffer_list, edges, simplify_tolerance=10):
+    """Compute length and percent of edges covered by buffer geometries.
+    """
+    if edges.empty:
+        return [0] * len(buffer_list), [0] * len(buffer_list)
 
+    network_crs = edges.crs
+    total_network_length = edges["length"].sum()
+    # Simplify and prepare edges
+    proj_crs = network_crs if network_crs.is_projected else "EPSG:3857"
+    edges_proj = edges.to_crs(proj_crs)
+    edges_proj["geometry"] = edges_proj.geometry.simplify(simplify_tolerance, preserve_topology=True)
+    edges_simplified = edges_proj.to_crs(network_crs).reset_index(drop=True)
+    edges_sindex = edges_simplified.sindex
+    previously_selected = set()
+    lengths = []
+    percentages = []
+
+    for buffer_gdf in buffer_list:
+        if buffer_gdf.empty:
+            # Still record previous cumulative values
+            seg_length = edges_simplified.loc[list(previously_selected), "length"].sum()
+            lengths.append(seg_length)
+            percentages.append((seg_length / total_network_length * 100) if total_network_length else 0)
+            continue
+
+        buffer_proj = buffer_gdf.to_crs(proj_crs).copy()
+        buffer_proj["geometry"] = buffer_proj.geometry.simplify(simplify_tolerance, preserve_topology=True)
+        unioned_geom = unary_union(buffer_proj.geometry)
+
+        if unioned_geom.is_empty:
+            seg_length = edges_simplified.loc[list(previously_selected), "length"].sum()
+            lengths.append(seg_length)
+            percentages.append((seg_length / total_network_length * 100) if total_network_length else 0)
+            continue
+
+        unioned_geom = gpd.GeoSeries([unioned_geom], crs=proj_crs).to_crs(network_crs).iloc[0]
+
+        # Find new intersecting edges
+        candidate_idx = list(edges_sindex.intersection(unioned_geom.bounds))
+        candidate_edges = edges_simplified.iloc[candidate_idx]
+        new_covered_idx = candidate_edges[candidate_edges.intersects(unioned_geom)].index
+
+        # Update selected set
+        previously_selected.update(new_covered_idx)
+
+        # Compute cumulative covered length
+        seg_length = edges_simplified.loc[list(previously_selected), "length"].sum()
+        lengths.append(seg_length)
+        percentages.append((seg_length / total_network_length * 100) if total_network_length else 0)
+
+    return lengths, percentages
 
 
 def create_buffer(G, buffer_walk, simplify_tolerance=10, prev_edges=None, prev_union=None):
@@ -4146,7 +4481,6 @@ def process_and_save_buffers_parallel(G_list, name, rerun, path_base, buffer_wal
     """Process and save buffers in parallel (much faster!)."""
     filename = f"{path_base}_{name}.pickle"
     if rerun or not os.path.exists(filename):
-        print(f"Generating {name} buffers with parallel processing...")
         buffers = []
         with ThreadPoolExecutor(max_workers=4) as executor:
             # Map graphs to create_buffer in parallel
@@ -4162,6 +4496,35 @@ def process_and_save_buffers_parallel(G_list, name, rerun, path_base, buffer_wal
             buffers = pickle.load(f)
     return buffers
 
+def seed_point_coverage(buffers, points):
+    """
+    Count how many *unique* seed points are covered cumulatively at each step.
+    Once a point is covered, it stays counted in future iterations.
+    This is to deal with the simiplification tolerance of the buffers.
+    """
+    covered_indices = set()
+    coverage_progression = []
+
+    for buf in buffers:
+        if buf.empty:
+            coverage_progression.append(len(covered_indices))
+            continue
+        # Query points that intersect the current buffer
+        matching_idx = points.sindex.query(buf.geometry, predicate='intersects')
+        new_indices = set(matching_idx[1])  # Indices of newly covered points
+        # Update the covered set
+        covered_indices.update(new_indices)
+        # Record the current total
+        coverage_progression.append(len(covered_indices))
+
+    return coverage_progression
+
+
+def overlap_size_percent(ref_graph, graph):
+    # find overlap between existing cycle network and grown network
+    total_edges     = ref_graph.number_of_edges()
+    overlapping     = sum(1 for u, v in ref_graph.edges() if graph.has_edge(u, v))
+    return (overlapping / total_edges * 100) if total_edges else 0
 
 def get_edge_path(G, path_nodes):
     # find routes between points on a graph
