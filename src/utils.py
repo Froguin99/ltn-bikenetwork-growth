@@ -3777,6 +3777,8 @@ def average_node_degree_composed(graphs, G_biketrack):
 
     avg_degrees = []
     for G in graphs:
+        if G is None or G.number_of_nodes() == 0:
+            return 0
         G_undirected = G.to_undirected() if G.is_directed() else G
         merged = nx.compose(G_undirected, G_biketrack)
 
@@ -4262,6 +4264,8 @@ def count_disconnected_components(graphs, G_biketrack):
 
     counts = []
     for G in graphs:
+        if G is None or G.number_of_nodes() == 0:
+            return 0
         if G.is_directed(): # check
             G = G.to_undirected()
         merged = nx.compose(G, G_biketrack)
@@ -4277,6 +4281,9 @@ def get_composite_lcc_length(G, G_biketrack):
     in the merged graph of G and G_biketrack. The component length is the
     sum of edge lengths (using 'length' attribute).
     """
+    if G is None or G.number_of_nodes() == 0:
+        return 0
+
     if G.is_directed():
         G = G.to_undirected()
     if G_biketrack.is_directed():
@@ -4369,6 +4376,9 @@ def compute_lcc_lengths(graph_list, G_biketrack):
     # use this to find the lcc+all the extra we connect to
     total_lengths_lcc = []
     for G in graph_list:
+        if G is None or G.number_of_nodes() == 0:
+            return 0
+        
         merged = nx.compose(G, G_biketrack)
         components = list(nx.weakly_connected_components(merged))
         max_length = 0.0
