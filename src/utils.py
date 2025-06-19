@@ -4472,6 +4472,10 @@ def compute_street_coverage(buffer_list, edges, simplify_tolerance=10):
 
 def create_buffer(G, buffer_walk, simplify_tolerance=10, prev_edges=None, prev_union=None):
     """Incrementally create a buffer, reusing previous buffer for existing edges."""
+    # Skip if graph is empty 
+    if G is None or G.number_of_nodes() == 0 or G.number_of_edges() == 0 or "crs" not in G.graph:
+        return gpd.GeoDataFrame(geometry=[]), None, None
+    
     gdf_edges = ox.graph_to_gdfs(G, nodes=False).to_crs(epsg=3857)
     current_edges = set(gdf_edges.index)
     new_edges = current_edges if prev_edges is None else current_edges - prev_edges
