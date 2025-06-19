@@ -4472,24 +4472,26 @@ def compute_street_coverage(buffer_list, edges, simplify_tolerance=10):
 
 def create_buffer(G, buffer_walk, simplify_tolerance=10, prev_edges=None, prev_union=None):
     """Incrementally create a buffer, reusing previous buffer for existing edges."""
-    # Skip if graph is empty 
-    if G is None or G.number_of_nodes() == 0 or G.number_of_edges() == 0 or "crs" not in G.graph:
+    try:
+        if G is None or G.number_of_nodes() == 0 or G.number_of_edges() == 0 or "crs" not in G.graph:
+            return gpd.GeoDataFrame(geometry=[]), None, None
+
+        gdf_edges = ox.graph_to_gdfs(G, nodes=False).to_crs(epsg=3857)
+        current_edges = set(gdf_edges.index)
+        new_edges = current_edges if prev_edges is None else current_edges - prev_edges
+        simplified = gdf_edges.loc[list(new_edges), "geometry"].simplify(simplify_tolerance)
+        buffered = simplified.buffer(buffer_walk)
+        new_union = buffered.unary_union if not buffered.empty else None
+
+        combined = new_union if prev_union is None else (prev_union if new_union is None else prev_union.union(new_union))
+        buffer_gdf = gpd.GeoDataFrame(geometry=[combined], crs="EPSG:3857").to_crs(epsg=4326)
+
+        return buffer_gdf, current_edges, combined
+
+    except Exception as e:
+        print(f"[create_buffer] Skipping graph due to error: {e}")
         return gpd.GeoDataFrame(geometry=[]), None, None
     
-    gdf_edges = ox.graph_to_gdfs(G, nodes=False).to_crs(epsg=3857)
-    current_edges = set(gdf_edges.index)
-    new_edges = current_edges if prev_edges is None else current_edges - prev_edges
-    simplified = gdf_edges.loc[list(new_edges), "geometry"].simplify(simplify_tolerance)
-    buffered = simplified.buffer(buffer_walk)
-    new_union = buffered.unary_union if not buffered.empty else None
-    if prev_union is None:
-        combined = new_union
-    elif new_union is None:
-        combined = prev_union
-    else:
-        combined = prev_union.union(new_union)
-    buffer_gdf = gpd.GeoDataFrame(geometry=[combined], crs="EPSG:3857").to_crs(epsg=4326)
-    return buffer_gdf, current_edges, combined
 
 def process_and_save_buffers_parallel(G_list, name, rerun, path_base, buffer_walk, simplify_tolerance=5, max_workers=4):
     """Process and save buffers in parallel (much faster!)."""
