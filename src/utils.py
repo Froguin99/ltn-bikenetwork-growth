@@ -4266,6 +4266,7 @@ def count_disconnected_components(graphs, G_biketrack):
     for G in graphs:
         if G is None or G.number_of_nodes() == 0:
             counts.append(np.nan)
+            continue
         if G.is_directed(): # check
             G = G.to_undirected()
         merged = nx.compose(G, G_biketrack)
