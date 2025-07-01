@@ -4400,20 +4400,23 @@ def load_results(path):
     return {}
 
 def save_results(results_list, pickle_path, json_path):
-    # takes results as a list of (name, values) pairs
     results_dict = {name: values for name, values in results_list}
-    # Save as pickle
-    with open(pickle_path, 'wb') as f:
-        pickle.dump(results_dict, f)
-    if os.path.exists(json_path):
-        with open(json_path, 'r') as f:
-            existing_data = json.load(f)
+    if os.path.exists(pickle_path):
+        with open(pickle_path, "rb") as f:
+            existing_pickle_data = pickle.load(f)
     else:
-        existing_data = {}
-    existing_data.update(results_dict)
-    # Save updated data to JSON
-    with open(json_path, 'w') as f:
-        json.dump(existing_data, f, indent=2)
+        existing_pickle_data = {}
+    existing_pickle_data.update(results_dict)
+    with open(pickle_path, "wb") as f:
+        pickle.dump(existing_pickle_data, f)
+    if os.path.exists(json_path):
+        with open(json_path, "r") as f:
+            existing_json_data = json.load(f)
+    else:
+        existing_json_data = {}
+    existing_json_data.update(results_dict)
+    with open(json_path, "w") as f:
+        json.dump(existing_json_data, f, indent=2)
 
 
 
