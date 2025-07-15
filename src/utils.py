@@ -3777,6 +3777,8 @@ def average_node_degree_composed(graphs, G_biketrack):
 
     avg_degrees = []
     for G in graphs:
+        if G is None or G.number_of_nodes() == 0:
+            return 0
         G_undirected = G.to_undirected() if G.is_directed() else G
         merged = nx.compose(G_undirected, G_biketrack)
 
@@ -4262,6 +4264,9 @@ def count_disconnected_components(graphs, G_biketrack):
 
     counts = []
     for G in graphs:
+        if G is None or G.number_of_nodes() == 0:
+            counts.append(np.nan)
+            continue
         if G.is_directed(): # check
             G = G.to_undirected()
         merged = nx.compose(G, G_biketrack)
@@ -4277,6 +4282,9 @@ def get_composite_lcc_length(G, G_biketrack):
     in the merged graph of G and G_biketrack. The component length is the
     sum of edge lengths (using 'length' attribute).
     """
+    if G is None or G.number_of_nodes() == 0:
+        return 0
+
     if G.is_directed():
         G = G.to_undirected()
     if G_biketrack.is_directed():
@@ -4369,6 +4377,9 @@ def compute_lcc_lengths(graph_list, G_biketrack):
     # use this to find the lcc+all the extra we connect to
     total_lengths_lcc = []
     for G in graph_list:
+        if G is None or G.number_of_nodes() == 0:
+            return 0
+        
         merged = nx.compose(G, G_biketrack)
         components = list(nx.weakly_connected_components(merged))
         max_length = 0.0
@@ -4389,20 +4400,23 @@ def load_results(path):
     return {}
 
 def save_results(results_list, pickle_path, json_path):
-    # takes results as a list of (name, values) pairs
     results_dict = {name: values for name, values in results_list}
-    # Save as pickle
-    with open(pickle_path, 'wb') as f:
-        pickle.dump(results_dict, f)
-    if os.path.exists(json_path):
-        with open(json_path, 'r') as f:
-            existing_data = json.load(f)
+    if os.path.exists(pickle_path):
+        with open(pickle_path, "rb") as f:
+            existing_pickle_data = pickle.load(f)
     else:
-        existing_data = {}
-    existing_data.update(results_dict)
-    # Save updated data to JSON
-    with open(json_path, 'w') as f:
-        json.dump(existing_data, f, indent=2)
+        existing_pickle_data = {}
+    existing_pickle_data.update(results_dict)
+    with open(pickle_path, "wb") as f:
+        pickle.dump(existing_pickle_data, f)
+    if os.path.exists(json_path):
+        with open(json_path, "r") as f:
+            existing_json_data = json.load(f)
+    else:
+        existing_json_data = {}
+    existing_json_data.update(results_dict)
+    with open(json_path, "w") as f:
+        json.dump(existing_json_data, f, indent=2)
 
 
 
@@ -4462,20 +4476,26 @@ def compute_street_coverage(buffer_list, edges, simplify_tolerance=10):
 
 def create_buffer(G, buffer_walk, simplify_tolerance=10, prev_edges=None, prev_union=None):
     """Incrementally create a buffer, reusing previous buffer for existing edges."""
-    gdf_edges = ox.graph_to_gdfs(G, nodes=False).to_crs(epsg=3857)
-    current_edges = set(gdf_edges.index)
-    new_edges = current_edges if prev_edges is None else current_edges - prev_edges
-    simplified = gdf_edges.loc[list(new_edges), "geometry"].simplify(simplify_tolerance)
-    buffered = simplified.buffer(buffer_walk)
-    new_union = buffered.unary_union if not buffered.empty else None
-    if prev_union is None:
-        combined = new_union
-    elif new_union is None:
-        combined = prev_union
-    else:
-        combined = prev_union.union(new_union)
-    buffer_gdf = gpd.GeoDataFrame(geometry=[combined], crs="EPSG:3857").to_crs(epsg=4326)
-    return buffer_gdf, current_edges, combined
+    try:
+        if G is None or G.number_of_nodes() == 0 or G.number_of_edges() == 0 or "crs" not in G.graph:
+            return gpd.GeoDataFrame(geometry=[]), None, None
+
+        gdf_edges = ox.graph_to_gdfs(G, nodes=False).to_crs(epsg=3857)
+        current_edges = set(gdf_edges.index)
+        new_edges = current_edges if prev_edges is None else current_edges - prev_edges
+        simplified = gdf_edges.loc[list(new_edges), "geometry"].simplify(simplify_tolerance)
+        buffered = simplified.buffer(buffer_walk)
+        new_union = buffered.unary_union if not buffered.empty else None
+
+        combined = new_union if prev_union is None else (prev_union if new_union is None else prev_union.union(new_union))
+        buffer_gdf = gpd.GeoDataFrame(geometry=[combined], crs="EPSG:3857").to_crs(epsg=4326)
+
+        return buffer_gdf, current_edges, combined
+
+    except Exception as e:
+        print(f"[create_buffer] Skipping graph due to error: {e}")
+        return gpd.GeoDataFrame(geometry=[]), None, None
+    
 
 def process_and_save_buffers_parallel(G_list, name, rerun, path_base, buffer_walk, simplify_tolerance=5, max_workers=4):
     """Process and save buffers in parallel (much faster!)."""
