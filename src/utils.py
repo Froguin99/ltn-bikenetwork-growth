@@ -1298,7 +1298,6 @@ def calculate_efficiency_global(G, numnodepairs = 500, normalized = True, debug=
     return EG / EG_id
 
 
-
 def calculate_efficiency_local(G, numnodepairs = 500, normalized = True):
     """Calculates local network efficiency.
     If there are more than numnodepairs nodes, measure over pairings of a 
@@ -4828,3 +4827,22 @@ def get_neighbourhood_pedestrian_graph(gdf, debug=False):
     G = ox.graph_from_gdfs(nodes, edges)
 
     return nodes, edges, G
+
+
+def normalise_by_percentage(lists, target_points=100):
+    """Normalise series to same percentage points (0-100%)."""
+    normalised_lists = []
+    for lst in lists:
+        # Replace None with np.nan and filter out NaNs
+        clean = np.array([v if v is not None else np.nan for v in lst], dtype=float)
+        mask = ~np.isnan(clean)
+        if mask.sum() > 1:
+            x_old = np.linspace(0, 100, mask.sum())
+            x_new = np.linspace(0, 100, target_points)
+            normalised = np.interp(x_new, x_old, clean[mask])
+        elif mask.sum() == 1:
+            normalised = np.repeat(clean[mask][0], target_points)
+        else:
+            normalised = np.full(target_points, np.nan)
+        normalised_lists.append(normalised)
+    return normalised_lists
