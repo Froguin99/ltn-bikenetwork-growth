@@ -1,0 +1,19 @@
+{
+      "motorway": 4,
+      "motorway_link": 4,
+      "trunk": 4,
+      "trunk_link": 4,
+      "primary": 4,
+      "primary_link": 4,
+      "secondary": 4,
+      "secondary_link": 4,
+      "tertiary": 3,
+      "tertiary_link": 3,
+      "unclassified": 3,
+      "residential": 2,
+      "living_street": 2,
+      "cycleway": 1,
+      "track": 1,
+      "path": 1,
+      "bridleway": 1
+}
