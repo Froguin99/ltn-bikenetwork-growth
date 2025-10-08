@@ -1,0 +1,26 @@
+{
+      "1": {
+            "linewidth": 5,
+            "color": "green",
+            "alpha": 1,
+            "zorder": 3
+      },
+      "2": {
+            "linewidth": 1,
+            "color": "#0699FF",
+            "alpha": 1,
+            "zorder": 2
+      },
+      "3": {
+            "linewidth": 1,
+            "color": "orange",
+            "alpha": 1,
+            "zorder": 1
+      },
+      "4": {
+            "linewidth": 1,
+            "color": "red",
+            "alpha": 1,
+            "zorder": 0
+      }
+}
