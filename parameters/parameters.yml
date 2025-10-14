@@ -9,6 +9,10 @@ scenarios:
  - "current_ltn_scenario"
  - "more_ltn_scenario" # The scenarios to run
 
+# this defines the level of traffic stress to assign to highway types. See the lts_weights.yml file
+lts_weight: "lite" # one of: igno, cons, lite, safe, avoi
+
+
 # These are values to loop through for different runs
 poi_source: "LTNs_tessellation" #"LTNs_tessellation" # railwaystation, grid, neighbourhoods, tessellation, mixed
 prune_measure: "betweenness" # betweenness, closeness
@@ -50,9 +54,9 @@ poiparameters:
         "railway":
          - 'station'
          - 'halt'
-# should maybe also add: ["railway"!~"entrance"], but afaik osmnx is not capable of this: https://osmnx.readthedocs.io/en/stable/osmnx.html?highlight=geometries_from_polygon#osmnx.geometries.geometries_from_polygon
-#"busstop":{'highway':'bus_stop'}
-              
+
+
+
 # 05
 buffer_walk: 500 # Buffer in m for coverage calculations. (How far people are willing to walk)
 numnodepairs: 500 # Number of node pairs to consider for random sample to calculate directness (O(numnodepairs^2), so better not go over 1000)
