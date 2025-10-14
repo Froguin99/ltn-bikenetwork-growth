@@ -1537,7 +1537,7 @@ def calculate_metrics_additively(
 
 def write_result(results, file_format, placeid, poi_source, prune_measure, extension, weighting=None, scenario=None):
     """
-    Save results to a file with standardized naming convention and directory structure
+    Save growth to a file with standardised naming convention and directory structure
     
     Args:
         results: Data to be saved
@@ -4399,6 +4399,49 @@ def load_results(path):
     return {}
 
 def save_results(results_list, pickle_path, json_path):
+    """
+    Save or update scenario analysis results to both pickle and JSON files.
+
+    Args:
+        results_list (list[tuple[str, Any]]): 
+            A list of (label, data) tuples containing computed results.
+            Each tuple typically has:
+                - label (str): Descriptive result name 
+                  (e.g. "Betweenness Growth - LCC Length").
+                - data (Any): Associated data, usually a list of numeric values
+                  (e.g. metric values per iteration).
+        
+        pickle_path (str): 
+            Path to the pickle (.pkl) file where results are stored.
+        
+        json_path (str): 
+            Path to the JSON (.json) file where results are stored.
+
+    Functionality:
+        - Converts `results_list` into a dictionary of {label: data}.
+        - Loads any existing pickle/JSON files (if present from previous runs).
+        - Updates existing results with new entries (overwriting only matching keys).
+        - Writes the merged results back to pickle and json
+
+    Helpful (?) Notes:
+        - Keys are are a tuple of (name, values), where name is the growth order type + metrics
+          (so something like Betweenness Growth - LCC Length, or Random Run 2 - LCC Length etc for name
+          and then a list of metrics for values, e.g. [123.4, ..., 145.7, 178.2]. We match the value
+          back up to the graph later by index position)
+        - Existing data is preserved unless a key in `results_list` already exists, 
+          in which case that key is replaced.
+        - Both files are created if they do not already exist.
+        - Graph growths are saved elsewhere, this is to save the results of analysis rather than
+          to save the grown graphs. Saving the growth can be found in the write_result function.
+
+    
+    Example:
+        results_list = [
+            ("Betweenness Growth - LCC Length", [123.4, ..., 145.7, 178.2]),
+            ("Random Growth (mean) - LCC Length", [100.2, ..., 120.1, 140.9])
+        ]
+        save_results(results_list, "path/to/results.pkl", "path/to/results.json")
+    """
     results_dict = {name: values for name, values in results_list}
     if os.path.exists(pickle_path):
         with open(pickle_path, "rb") as f:
