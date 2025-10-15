@@ -4427,7 +4427,7 @@ def save_results(results_list, pickle_path, json_path):
         - Keys are are a tuple of (name, values), where name is the growth order type + metrics
           (so something like Betweenness Growth - LCC Length, or Random Run 2 - LCC Length etc for name
           and then a list of metrics for values, e.g. [123.4, ..., 145.7, 178.2]. We match the value
-          back up to the graph later by index position)
+          back up to the graph later by index)
         - Existing data is preserved unless a key in `results_list` already exists, 
           in which case that key is replaced.
         - Both files are created if they do not already exist.
@@ -4889,3 +4889,19 @@ def normalise_by_percentage(lists, target_points=100):
             normalised = np.full(target_points, np.nan)
         normalised_lists.append(normalised)
     return normalised_lists
+
+
+def tag_edges_with_neighbourhood_flag(G, neighbourhood_graph):
+    """
+    Adds an 'ltn_flag' boolean attribute to all edges in G.
+    True if the edge exists in neighbourhood_graph, False otherwise.
+    """
+    # Build a set of edges from neighbourhood_graph
+    # We use tuples (u, v, key) for MultiDiGraph
+    nh_edges_set = set(neighbourhood_graph.edges(keys=True))
+
+    # Tag edges in G
+    for u, v, k, data in G.edges(keys=True, data=True):
+        data["ltn_flag"] = (u, v, k) in nh_edges_set
+
+    return G
