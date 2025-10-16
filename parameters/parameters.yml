@@ -10,7 +10,7 @@ scenarios:
  - "more_ltn_scenario" # The scenarios to run
 
 # this defines the level of traffic stress to assign to highway types. See the lts_weights.yml file
-lts_weight: "lite" # one of: igno, cons, lite, safe, avoi
+lts_weight: "osrm" # one of: igno, cons, lite, safe, avoi, osrm. default is osrm.
 
 
 # These are values to loop through for different runs
