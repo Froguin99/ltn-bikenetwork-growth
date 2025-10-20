@@ -6,19 +6,19 @@
             "retain_all": true
       },
       "carall": {
-            "network_type": "drive",
-            "custom_filter": null,
+            "network_type": "all",
+            "custom_filter": "[\"highway\"][\"area\"!~\"yes\"][\"highway\"!~\"abandoned|bridleway|bus_guideway|construction|corridor|cycleway|elevator|escalator|footway|no|path|pedestrian|planned|platform|proposed|raceway|razed|rest_area|services|steps|track\"][\"motor_vehicle\"!~\"no\"][\"motorcar\"!~\"no\"][\"access\"!~\"private\"][\"service\"!~\"emergency_access\"]",
             "export": true,
-            "retain_all": false
+            "retain_all": true
       },
       "bike_cyclewaytrack": {
-            "network_type": "bike",
+            "network_type": "all",
             "custom_filter": "[\"cycleway\"~\"track\"]",
             "export": false,
             "retain_all": true
       },
       "bike_highwaycycleway": {
-            "network_type": "bike",
+            "network_type": "all",
             "custom_filter": "[\"highway\"~\"cycleway\"]",
             "export": false,
             "retain_all": true

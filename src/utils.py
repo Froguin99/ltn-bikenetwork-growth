@@ -4891,17 +4891,36 @@ def normalise_by_percentage(lists, target_points=100):
     return normalised_lists
 
 
-def tag_edges_with_neighbourhood_flag(G, neighbourhood_graph):
+def flag_ltn_streets(G, neighbourhoods_gdf, predicate="intersects"):
     """
-    Adds an 'ltn_flag' boolean attribute to all edges in G.
-    True if the edge exists in neighbourhood_graph, False otherwise.
+    Tags edges in G with 'ltn_flag' = True if they are within or intersect any neighbourhood polygon.
+    Returns edges GeoDataFrame with 'ltn_flag'.
+    
+    predicate: 'within' or 'intersects'
     """
-    # Build a set of edges from neighbourhood_graph
-    # We use tuples (u, v, key) for MultiDiGraph
-    nh_edges_set = set(neighbourhood_graph.edges(keys=True))
+    if G.number_of_edges() == 0 or neighbourhoods_gdf.empty:
+        raise ValueError("Empty graph or neighbourhoods_gdf.")
 
-    # Tag edges in G
-    for u, v, k, data in G.edges(keys=True, data=True):
-        data["ltn_flag"] = (u, v, k) in nh_edges_set
+    # Build edges GeoDataFrame
+    edges = [{"u": u, "v": v, "key": k, "geometry": data.get("geometry") or 
+                     LineString([(G.nodes[u]['x'], G.nodes[u]['y']), (G.nodes[v]['x'], G.nodes[v]['y'])])}
+        for u, v, k, data in G.edges(keys=True, data=True)
+        if "x" in G.nodes[u] and "x" in G.nodes[v]]
+    edges_gdf = gpd.GeoDataFrame(edges, geometry="geometry", crs=neighbourhoods_gdf.crs)
 
-    return G
+    # ensure valid geometries
+    neighbourhoods_gdf = neighbourhoods_gdf.copy()
+    neighbourhoods_gdf["geometry"] = neighbourhoods_gdf.buffer(0)
+
+    # Spatial join
+    joined = gpd.sjoin(edges_gdf, neighbourhoods_gdf, how="inner", predicate=predicate)
+
+    # Flag edges
+    edges_gdf["ltn_flag"] = edges_gdf.index.isin(joined.index.unique())
+
+    # Push to graph
+    for _, row in edges_gdf.iterrows():
+        if G.has_edge(row.u, row.v, row.key):
+            G[row.u][row.v][row.key]["ltn_flag"] = bool(row.ltn_flag)
+
+    return edges_gdf
