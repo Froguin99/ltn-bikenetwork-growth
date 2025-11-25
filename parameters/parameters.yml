@@ -17,7 +17,7 @@ lts_weight: "safe" # one of: igno, cons, lite, safe, avoi, osrm. default is osrm
 poi_source: "LTNs_tessellation" #"LTNs_tessellation" # railwaystation, grid, neighbourhoods, tessellation, mixed
 prune_measure: "betweenness" # betweenness, closeness
 weighting: True # True, False
-methods_plotting: False # choose if we show the methods in plots as the code runs
+methods_plotting: True # choose if we show the methods in plots as the code runs
 export: True # chose to export geopackages mid-way through running, for use in QGIS etc.
 prune_measures:
 - "betweenness_ltn_priority"
