@@ -4711,6 +4711,26 @@ def plot_and_save_network_stats(results, output_plot_path, output_csv_path, scen
     network_df.to_csv(output_csv_path)
 
 
+def make_uv_fit(edge, graph):
+    if edge in graph.edges:
+        return edge
+    elif not edge in graph.edges:
+        edge_reversed = (edge[1], edge[0])
+        assert edge_reversed in graph.edges, "neither uv nor vu are in the graph!"
+        return edge_reversed
+    else:
+        raise ValueError("neither uv nor vu are in destination graph")
+
+def make_uvw_fit(edge, graph):
+    if edge in graph.edges:
+        return edge
+    elif not edge in graph.edges:
+        edge_reversed = (edge[1], edge[0], edge[2])
+        assert edge_reversed in graph.edges, "neither uvw nor vuw are in the graph!"
+        return edge_reversed
+    else:
+        raise ValueError("neither uvw nor vuw are in destination graph")
+
 
 def patch_cycle_graph_with_pedestrian_links(neighbourhoods, gdf, debug=False):
     """
