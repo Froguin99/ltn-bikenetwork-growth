@@ -147,6 +147,21 @@ def extract_relevant_polygon(placeid, mp):
         p = max(mp, key=lambda a: a.area)
     return p
 
+def get_WAL(graph, edges):
+        lts = []
+        lens = []
+        for edge in edges:
+            lts.append(graph.edges[edge]["lts_class"])
+            lens.append(graph.edges[edge]["length"])
+        return sum([x*y for x, y in zip(lts,lens)])/(sum(lens))
+
+def get_weighted_path_length(graph, source, target, weight="lts_length"):
+    # helper function to compute the *physical* length of a *weighted* shortest path
+    nodes = nx.shortest_path(graph, source, target, weight)
+    edges = list(zip(nodes, nodes[1:]))
+    length = sum([graph.edges[e]["length"] for e in edges])
+    return length
+
 def get_holes(cov):
     """Get holes (= shapely interiors) from a coverage Polygon or MultiPolygon
     """
