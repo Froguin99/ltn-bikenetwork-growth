@@ -15,8 +15,8 @@ lts_weight: "safe" # one of: igno, cons, lite, safe, avoi, osrm. default is osrm
 # These values determine how many routes to explore when calculating bikeability, and the maximum detour to consider acceptable
 # see script 05 for more details
 max_detour: 1.25
-max_k_refine: 10 
-max_k_explore: 20
+max_k_refine: 100 
+max_k_explore: 200
 
 # These are values to loop through for different runs
 poi_source: "LTNs_tessellation" #"LTNs_tessellation" # railwaystation, grid, neighbourhoods, tessellation, mixed
