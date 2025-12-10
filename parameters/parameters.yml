@@ -12,12 +12,18 @@ scenarios:
 # this defines the level of traffic stress to assign to highway types. See the lts_weights.yml file
 lts_weight: "safe" # one of: igno, cons, lite, safe, avoi, osrm. default is osrm.
 
+# These values determine how many routes to explore when calculating bikeability, and the maximum detour to consider acceptable
+# see script 05 for more details
+max_detour: 1.25
+max_k_refine: 100 
+max_k_explore: 200
+max_lts: 2 # maximum level of traffic stress acceptable for bikeable routes in the bikeable network
 
 # These are values to loop through for different runs
 poi_source: "LTNs_tessellation" #"LTNs_tessellation" # railwaystation, grid, neighbourhoods, tessellation, mixed
 prune_measure: "betweenness" # betweenness, closeness
 weighting: True # True, False
-methods_plotting: False # choose if we show the methods in plots as the code runs
+methods_plotting: True # choose if we show the methods in plots as the code runs
 export: True # chose to export geopackages mid-way through running, for use in QGIS etc.
 prune_measures:
 - "betweenness_ltn_priority"
