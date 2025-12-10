@@ -17,6 +17,7 @@ lts_weight: "safe" # one of: igno, cons, lite, safe, avoi, osrm. default is osrm
 max_detour: 1.25
 max_k_refine: 100 
 max_k_explore: 200
+max_lts: 2 # maximum level of traffic stress acceptable for bikeable routes in the bikeable network
 
 # These are values to loop through for different runs
 poi_source: "LTNs_tessellation" #"LTNs_tessellation" # railwaystation, grid, neighbourhoods, tessellation, mixed
