@@ -19,6 +19,10 @@ max_k_refine: 100
 max_k_explore: 200
 max_lts: 2 # maximum level of traffic stress acceptable for bikeable routes in the bikeable network
 
+# area buffer
+# this is needed in case of isolated neighbourhoods or areas on the edge of a city boundary  which would use a nearby boundary road to be connected
+network_buffer: 50 # in meters
+
 # These are values to loop through for different runs
 poi_source: "LTNs_tessellation" #"LTNs_tessellation" # railwaystation, grid, neighbourhoods, tessellation, mixed
 prune_measure: "betweenness" # betweenness, closeness
