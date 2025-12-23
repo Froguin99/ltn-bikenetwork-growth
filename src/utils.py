@@ -1724,6 +1724,23 @@ def gdf_to_geojson(gdf, properties):
     return geojson
 
 
+def get_reachable_components(node):
+    """Given a node, return all components reachable from it, either directly or via LTN exit points.
+    """
+    comps = set()
+    
+    # Direct access: Node is on the graph
+    if node in node_to_component:
+        comps.add(node_to_component[node])
+    
+    # Node is an LTN point -> check the exits points from the LTN
+    if node in ltn_to_nid:
+        nid = ltn_to_nid[node]
+        exits = nid_to_exits.get(nid, set())
+        for exit_node in exits:
+            if exit_node in node_to_component:
+                comps.add(node_to_component[exit_node])
+    return comps
 
 def ig_to_shapely(G):
     """Turn an igraph graph G to a shapely LineString
