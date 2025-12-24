@@ -1724,15 +1724,130 @@ def gdf_to_geojson(gdf, properties):
     return geojson
 
 
-def get_reachable_components(node):
+def get_bikeability(G_carall_local, GT_graph_local, city_local,scenario_local,mydemand_local,lts_weights, params,ltn_points_dict,exit_points_dict,):
+    """
+    Process a single GT graph and return (completable_flow, completable_pct).
+    Connections are found be finding if start and end nodes are within the same component (faster than shortest path)
+    """
+    # Validate required args
+    if lts_weights is None:
+        raise ValueError("process_gt_graph requires 'lts_weights' argument")
+    if params is None:
+        raise ValueError("process_gt_graph requires 'params' argument")
+    if ltn_points_dict is None:
+        raise ValueError("process_gt_graph requires 'ltn_points_dict' argument")
+    if exit_points_dict is None:
+        raise ValueError("process_gt_graph requires 'exit_points_dict' argument")
+
+    # Normalize graphs: ensure undirected MultiGraph for both inputs
+    if G_carall_local.is_directed():
+        G_carall_local = G_carall_local.to_undirected()
+    if not G_carall_local.is_multigraph():
+        G_carall_local = nx.MultiGraph(G_carall_local)
+
+    if GT_graph_local.is_directed():
+        GT_graph_local = GT_graph_local.to_undirected()
+    if not GT_graph_local.is_multigraph():
+        GT_graph_local = nx.MultiGraph(GT_graph_local)
+
+    # Compose and ensure MultiGraph
+    G_composed = nx.compose(G_carall_local, GT_graph_local)
+    if not G_composed.is_multigraph():
+        G_composed = nx.MultiGraph(G_composed)
+    G_composed = G_composed.to_undirected()
+
+    # Mark GT edges as LTS 1
+    for u, v, k in GT_graph_local.edges(keys=True):
+        if G_composed.has_edge(u, v, k):
+            G_composed.edges[u, v, k]["lts_class"] = 1
+            G_composed.edges[u, v, k]["lts_length"] = G_composed.edges[u, v, k].get("length", 0) * lts_weights[1]
+
+    # Subgraph of bikeable edges
+    bikeable_edges = [
+        (u, v, k)
+        for u, v, k, data in G_composed.edges(keys=True, data=True)
+        if data.get("lts_class", 4) <= params["max_lts"]
+    ]
+    G_lts = G_composed.edge_subgraph(bikeable_edges).copy()
+    if not G_lts.is_multigraph():
+        G_lts = nx.MultiGraph(G_lts)
+    G_lts = G_lts.to_undirected()
+
+    # Build LTN mappings (from the dicts passed in)
+    ltn_points = ltn_points_dict.get((city_local, scenario_local))
+    exit_points = exit_points_dict.get((city_local, scenario_local))
+
+    ltn_to_nid = {}
+    if ltn_points is not None:
+        for _, r in ltn_points.iterrows():
+            if pd.isna(r.get("neighbourhood_id", None)):
+                continue
+            nid = str(int(r["neighbourhood_id"]))
+            if "osmid" in r and pd.notna(r["osmid"]):
+                ltn_to_nid[r["osmid"]] = nid
+            if "nearest_node" in r and pd.notna(r["nearest_node"]):
+                ltn_to_nid[r["nearest_node"]] = nid
+
+    nid_to_exits = {}
+    if exit_points is not None:
+        exit_points_clean = exit_points.copy()
+        exit_points_clean["neighbourhood_id"] = exit_points_clean["neighbourhood_id"].astype(float).astype(int).astype(str)
+        node_col = "osmid"
+        for nid, grp in exit_points_clean.groupby("neighbourhood_id"):
+            nid_to_exits[nid] = set(grp[node_col].values)
+
+    # Map nodes to connected-component ids
+    node_to_component = {}
+    for comp_id, component_nodes in enumerate(nx.connected_components(G_lts)):
+        for node in component_nodes:
+            node_to_component[node] = comp_id
+
+    # Evaluate demand
+    completable_flow = 0.0
+    completable_count = 0
+    total_trips = len(mydemand_local)
+
+    for _, drow in mydemand_local.iterrows():
+        start_node = drow.start_osmid
+        end_node = drow.end_osmid
+
+        start_comps = get_reachable_components(
+            start_node,
+            node_to_component=node_to_component,
+            ltn_to_nid=ltn_to_nid,
+            nid_to_exits=nid_to_exits,
+        )
+        end_comps = get_reachable_components(
+            end_node,
+            node_to_component=node_to_component,
+            ltn_to_nid=ltn_to_nid,
+            nid_to_exits=nid_to_exits,
+        )
+
+        if not start_comps.isdisjoint(end_comps):
+            completable_flow += drow.total_flow
+            completable_count += 1
+
+    completable_pct = (completable_count / total_trips) * 100 if total_trips > 0 else 0.0
+    return completable_flow, completable_pct
+
+def get_reachable_components(node, node_to_component=None, ltn_to_nid=None, nid_to_exits=None):
     """Given a node, return all components reachable from it, either directly or via LTN exit points.
+
+    If mapping dicts are not provided they will be looked up in module globals.
+    If those globals don't exist, empty mappings are used and an empty set is returned.
     """
     comps = set()
-    
+
+    # Use provided mappings or fall back to module globals (or empty dict)
+    node_to_component = node_to_component if node_to_component is not None else globals().get("node_to_component", {})
+    ltn_to_nid = ltn_to_nid if ltn_to_nid is not None else globals().get("ltn_to_nid", {})
+    nid_to_exits = nid_to_exits if nid_to_exits is not None else globals().get("nid_to_exits", {})
+
     # Direct access: Node is on the graph
     if node in node_to_component:
         comps.add(node_to_component[node])
-    
+
     # Node is an LTN point -> check the exits points from the LTN
     if node in ltn_to_nid:
         nid = ltn_to_nid[node]
@@ -1740,6 +1855,7 @@ def get_reachable_components(node):
         for exit_node in exits:
             if exit_node in node_to_component:
                 comps.add(node_to_component[exit_node])
+
     return comps
 
 def ig_to_shapely(G):
