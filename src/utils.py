@@ -4141,10 +4141,24 @@ def find_bounding_lines(centroids, lines_gdf):
         result[cent_idx] = bound_idxs
     return result
 
+def add_edge(edge_set, graph, a, b):
+    """Add edge(s) between a and b to edge_set - same as betweenness cell."""
+    if graph.is_multigraph():
+        if graph.has_edge(a, b):
+            for k in graph[a][b].keys():
+                edge_set.add((a, b, k))
+        elif graph.has_edge(b, a):
+            for k in graph[b][a].keys():
+                edge_set.add((b, a, k))
+    else:
+        if graph.has_edge(a, b):
+            edge_set.add((a, b))
+        elif graph.has_edge(b, a):
+            edge_set.add((b, a))
 
-def run_random_growth_no_ltn(placeid,poi_source,investment_levels,weighting,greedy_gdf,G_caralls,G_weighted,all_centroids,tess_gdf,sp_length,sp_path,debug=False):
+def run_random_growth_no_ltn(placeid, poi_source, investment_levels, weighting, greedy_gdf, G_caralls, G_weighted, all_centroids, tess_gdf, sp_length, sp_path, debug=False):
     """
-    Random growth for “no LTN” scenarios: same as run_random_growth with any referance to LTNs removed.
+    Random growth for "no LTN" scenarios: same as run_random_growth with any reference to LTNs removed.
     """
     shuffled_edges = greedy_gdf.sample(frac=1)  
     random_edges = pd.Series(False, index=greedy_gdf.index)
@@ -4152,15 +4166,13 @@ def run_random_growth_no_ltn(placeid,poi_source,investment_levels,weighting,gree
     edge_pointer = 0
 
     global_processed_pairs_random = set()
-    cumulative_GT_indices_random = set()
+    cumulative_GT_edges_random = set()  
     Random_GT_abstracts = []
     Random_GT_abstracts_gdf = []
     Random_GTs = []
     Random_GTs_gdf = []
 
-    for D in tqdm(investment_levels,
-                  desc="Random growth (no LTN) routing for meters of investment"):
-        # pick edges
+    for D in tqdm(investment_levels, desc="Random growth (no LTN) routing for meters of investment"):
         remaining_budget = D - distance
         if remaining_budget > 0 and edge_pointer < len(shuffled_edges):
             cumdist = shuffled_edges.iloc[edge_pointer:]['distance'].cumsum()
@@ -4171,39 +4183,49 @@ def run_random_growth_no_ltn(placeid,poi_source,investment_levels,weighting,gree
                 random_edges[idxs] = True
                 distance += cumdist.iloc[n_add - 1]
                 edge_pointer += n_add
+        
         GT_abstract_gdf = greedy_gdf[random_edges].copy()
         Random_GT_abstracts_gdf.append(GT_abstract_gdf)
         GT_abstract_nx = gdf_to_nx_graph(GT_abstract_gdf)
         Random_GT_abstracts.append(GT_abstract_nx)
         routenodepairs = list(GT_abstract_nx.edges())
 
-        # route pairs
-        GT_indices = set()
+        GT_edges = set()
         for u, v in routenodepairs:
             pair = (u, v)
             if pair in global_processed_pairs_random or (v, u) in global_processed_pairs_random:
                 continue
+            
+            best_path = None
             if (u, v) in sp_path:
-                GT_indices.update(sp_path[(u, v)])
+                best_path = sp_path[(u, v)]
+            elif (v, u) in sp_path:
+                best_path = sp_path[(v, u)]
+            
+            if best_path:
+                for i in range(len(best_path) - 1):
+                    add_edge(GT_edges, G_caralls, best_path[i], best_path[i + 1])
+            
             global_processed_pairs_random.add(pair)
-        cumulative_GT_indices_random.update(GT_indices)
+        
+        cumulative_GT_edges_random.update(GT_edges)
 
-        if not cumulative_GT_indices_random:
+        if not cumulative_GT_edges_random:
             Random_GTs.append(nx.Graph())
             Random_GTs_gdf.append(gpd.GeoDataFrame())
             continue
 
-        GT = G_caralls.subgraph(cumulative_GT_indices_random)
+        GT = G_caralls.edge_subgraph(cumulative_GT_edges_random).copy()
         for a, b, data in GT.edges(data=True):
             if 'length' in data:
                 data['weight'] = data['length']
 
         Random_GTs.append(GT)
-        _, GT_edges = ox.graph_to_gdfs(GT)
-        Random_GTs_gdf.append(GT_edges)
+        _, GT_edges_gdf = ox.graph_to_gdfs(GT)
+        Random_GTs_gdf.append(GT_edges_gdf)
 
         if debug:
-            ax = GT_edges.to_crs(epsg=3857).plot()
+            ax = GT_edges_gdf.to_crs(epsg=3857).plot()
             tess_gdf.to_crs(epsg=3857).plot(ax=ax, color='green', markersize=5)
             ax.set_title(f"No-LTN run: D={D}, edges={GT.number_of_edges()}")
 
@@ -4217,21 +4239,20 @@ def run_random_growth_no_ltn(placeid,poi_source,investment_levels,weighting,gree
     }
 
 def run_random_growth(placeid, poi_source, investment_levels, weighting, greedy_gdf, G_caralls, G_weighted, all_centroids, exit_points, sp_length, sp_path, ltn_gdf, tess_gdf, debug=False):
-    '''Creates a bike network through random order, given a list of input edges and a budget. Used to create many random runs.'''
-    shuffled_edges = greedy_gdf.sample(frac=1)  # no fixed seed for variability
+    """Creates a bike network through random order, given a list of input edges and a budget."""
+    shuffled_edges = greedy_gdf.sample(frac=1)
     random_edges = pd.Series(False, index=greedy_gdf.index)
     distance = 0.0
     edge_pointer = 0
 
     global_processed_pairs_random = set()
-    cumulative_GT_indices_random = set()
+    cumulative_GT_edges_random = set()  
     Random_GT_abstracts = []
     Random_GT_abstracts_gdf = []
     Random_GTs = []
     Random_GTs_gdf = []
     
     for D in tqdm(investment_levels, desc="Pruning GT abstract randomly and routing on network for meters of investment"):
-        # Calculate remaining budget for new edges
         remaining_budget = D - distance
         if remaining_budget > 0 and edge_pointer < len(shuffled_edges):
             cumulative_distances = shuffled_edges.iloc[edge_pointer:]['distance'].cumsum()
@@ -4243,134 +4264,83 @@ def run_random_growth(placeid, poi_source, investment_levels, weighting, greedy_
                 distance += cumulative_distances.iloc[num_edges_to_add - 1]
                 edge_pointer += num_edges_to_add
 
-        # Save abstract graph
         GT_abstract_gdf = greedy_gdf[random_edges].copy()
         if GT_abstract_gdf.empty:
-            print(f"[run_random_growth] No edges selected at investment level {D}. Skipping.")
             Random_GT_abstracts_gdf.append(GT_abstract_gdf)
             Random_GT_abstracts.append(nx.Graph())
             Random_GTs.append(nx.Graph())
             Random_GTs_gdf.append(gpd.GeoDataFrame())
             continue
-        else:
-            Random_GT_abstracts_gdf.append(GT_abstract_gdf)
-            GT_abstract_nx = gdf_to_nx_graph(GT_abstract_gdf)
-            Random_GT_abstracts.append(GT_abstract_nx)
-            routenodepairs = list(GT_abstract_nx.edges())
+        
+        Random_GT_abstracts_gdf.append(GT_abstract_gdf)
+        GT_abstract_nx = gdf_to_nx_graph(GT_abstract_gdf)
+        Random_GT_abstracts.append(GT_abstract_nx)
+        routenodepairs = list(GT_abstract_nx.edges())
 
-        if debug:
-            ax = GT_abstract_gdf.plot()
-            ltn_gdf.plot(ax=ax, color='red', markersize=10)
-            tess_gdf.plot(ax=ax, color='green', markersize=5)
-            for idx, row in ltn_gdf.iterrows():
-                ax.annotate(
-                    text=str(row['osmid']),  # Use index or another column for labeling
-                    xy=(row.geometry.x, row.geometry.y),  # Get the coordinates of the point
-                    xytext=(3, 3),  
-                    textcoords="offset points",
-                    fontsize=8,
-                    color="red"
-                )
-
-        # Prepare for routing
-        GT_indices = set()
+        GT_edges = set()
         for u, v in routenodepairs:
             pair = (u, v)
             if pair in global_processed_pairs_random or tuple(reversed(pair)) in global_processed_pairs_random:
                 continue
 
-            # Determine node types
+            best_path = None
             is_u_nei = u in all_centroids['nearest_node'].values
             is_v_nei = v in all_centroids['nearest_node'].values
 
             if is_u_nei and is_v_nei:
-                # Neigh-Neigh: exit->exit routing
                 na = all_centroids.loc[all_centroids['nearest_node'] == u, 'neighbourhood_id'].iloc[0]
                 nb = all_centroids.loc[all_centroids['nearest_node'] == v, 'neighbourhood_id'].iloc[0]
                 exit_a = exit_points.loc[exit_points['neighbourhood_id'] == na, 'osmid']
                 exit_b = exit_points.loc[exit_points['neighbourhood_id'] == nb, 'osmid']
                 best_len = float('inf')
-                best_path = None
                 for ea in exit_a:
                     for eb in exit_b:
-                        if (ea, eb) in sp_length:
-                            L = sp_length[(ea, eb)]
-                            if L < best_len:
-                                best_len = L
-                                best_path = sp_path[(ea, eb)]
-                if best_path:
-                    GT_indices.update(best_path)
-
-            elif is_u_nei and not is_v_nei:
-                # Neigh -> Tessellation
+                        if (ea, eb) in sp_length and sp_length[(ea, eb)] < best_len:
+                            best_len = sp_length[(ea, eb)]
+                            best_path = sp_path[(ea, eb)]
+            elif is_u_nei:
                 na = all_centroids.loc[all_centroids['nearest_node'] == u, 'neighbourhood_id'].iloc[0]
                 exit_a = exit_points.loc[exit_points['neighbourhood_id'] == na, 'osmid']
                 best_len = float('inf')
-                best_path = None
                 for ea in exit_a:
-                    if (ea, v) in sp_length:
-                        L = sp_length[(ea, v)]
-                        if L < best_len:
-                            best_len = L
-                            best_path = sp_path[(ea, v)]
-                if best_path:
-                    GT_indices.update(best_path)
-
-            elif not is_u_nei and is_v_nei:
-                # Tessellation -> Neigh
+                    if (ea, v) in sp_length and sp_length[(ea, v)] < best_len:
+                        best_len = sp_length[(ea, v)]
+                        best_path = sp_path[(ea, v)]
+            elif is_v_nei:
                 nb = all_centroids.loc[all_centroids['nearest_node'] == v, 'neighbourhood_id'].iloc[0]
                 exit_b = exit_points.loc[exit_points['neighbourhood_id'] == nb, 'osmid']
                 best_len = float('inf')
-                best_path = None
                 for eb in exit_b:
-                    if (u, eb) in sp_length:
-                        L = sp_length[(u, eb)]
-                        if L < best_len:
-                            best_len = L
-                            best_path = sp_path[(u, eb)]
-                if best_path:
-                    GT_indices.update(best_path)
-
+                    if (u, eb) in sp_length and sp_length[(u, eb)] < best_len:
+                        best_len = sp_length[(u, eb)]
+                        best_path = sp_path[(u, eb)]
             else:
-                # Tess-Tess direct
                 if (u, v) in sp_path:
-                    GT_indices.update(sp_path[(u, v)])
+                    best_path = sp_path[(u, v)]
+
+            if best_path:
+                for i in range(len(best_path) - 1):
+                    add_edge(GT_edges, G_caralls, best_path[i], best_path[i + 1])
 
             global_processed_pairs_random.add(pair)
 
-        cumulative_GT_indices_random.update(GT_indices)
+        cumulative_GT_edges_random.update(GT_edges)
 
-        if len(cumulative_GT_indices_random) == 0:
-            print(f"[run_random_growth] No routes found at investment level {D}. Skipping.")
+        if not cumulative_GT_edges_random:
             Random_GTs.append(nx.Graph())
             Random_GTs_gdf.append(gpd.GeoDataFrame())
             continue
-        # Build GT subgraph and store
-        #GT = G_caralls[placeid].subgraph(cumulative_GT_indices_random)
-        GT = G_caralls.subgraph(cumulative_GT_indices_random)
+
+        GT = G_caralls.edge_subgraph(cumulative_GT_edges_random).copy()
         for a, b, data in GT.edges(data=True):
             if 'length' in data:
                 data['weight'] = data['length']
-
-        if GT.number_of_edges() == 0:
-            print(f"[run_random_growth] Skipping empty GT at investment level {D}")
-            Random_GTs.append(nx.Graph())
-            Random_GTs_gdf.append(gpd.GeoDataFrame())
-            continue
 
         Random_GTs.append(GT)
         _, Random_GT_edges = ox.graph_to_gdfs(GT)
         Random_GTs_gdf.append(Random_GT_edges)
 
-        if debug:
-            GT_nodes, GT_edges = ox.graph_to_gdfs(GT)
-            GT_edges = GT_edges.to_crs(epsg=3857)
-            ax = GT_edges.plot()
-            ltn_gdf.plot(ax=ax, color='red', markersize=10)
-            tess_gdf.plot(ax=ax, color='green', markersize=5)
-            ax.set_title(f"Investment level: {D}, Number of edges: {len(GT.edges)}")
-
-    results = {
+    return {
         "placeid": placeid,
         "prune_measure": "random",
         "poi_source": poi_source,
@@ -4378,7 +4348,6 @@ def run_random_growth(placeid, poi_source, investment_levels, weighting, greedy_
         "GTs": Random_GTs,
         "GT_abstracts": Random_GT_abstracts
     }
-    return results
 
 
 def count_disconnected_components(graphs, G_biketrack):
