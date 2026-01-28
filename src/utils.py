@@ -4393,6 +4393,28 @@ def get_composite_lcc_length(G, G_biketrack):
     return max_length
 
 
+def reconstruct_graphs_from_edges(edge_lists, G_carall):
+    """
+    Reconstruct graphs from stored edge tuples using the carall graph as reference.
+    This allows loading lightweight pickle files that store only edge tuples instead of full graphs.
+    
+    Parameters:
+        edge_lists: list of lists of edge tuples (u, v, key) or (u, v)
+        G_carall: the reference graph to pull edge attributes from
+    
+    Returns:
+        list of nx.Graph objects reconstructed from the edge tuples
+    """
+    reconstructed = []
+    for edges in edge_lists:
+        if edges:
+            subgraph = G_carall.edge_subgraph(edges).copy()
+        else:
+            subgraph = G_carall.__class__()  # empty graph of same type
+        reconstructed.append(subgraph)
+    return reconstructed
+
+
 def compute_total_lengths(graphs):
      # used to find the length of each bicycle network at each stage of growth
     return [sum(data['length'] for _, _, data in G.edges(data=True) if 'length' in data) for G in graphs]
