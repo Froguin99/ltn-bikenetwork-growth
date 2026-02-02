@@ -1813,7 +1813,8 @@ def get_bikeability(G_carall_local, GT_graph_local, city_local, scenario_local,m
             completable_flow += flows[i]
             completable_count += 1
 
-    completable_pct = (completable_count / total_trips) * 100 if total_trips > 0 else 0.0
+    total_flow_all = flows.sum() if hasattr(flows, "sum") else sum(flows)
+    completable_pct = (completable_flow / total_flow_all) * 100 if total_flow_all > 0 else 0.0
     return completable_flow, completable_pct
 
 def get_reachable_components(node, node_to_component=None, ltn_to_nid=None, nid_to_exits=None):
