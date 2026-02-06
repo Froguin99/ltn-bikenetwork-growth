@@ -1854,6 +1854,119 @@ def ig_to_shapely(G):
     return G_shapely
 
 
+def calculate_bikeability(
+    G_base,
+    GT,
+    pairs_by_origin,
+    mydemand,
+    lts_weights,
+    max_dist_m=5000
+):
+    """
+    Calculate bikeability metrics for a single GT graph.
+    
+    Parameters
+    ----------
+    G_base : nx.MultiGraph
+        Base street network with lts_class and lts_length already set.
+    GT : The results from 04
+    pairs_by_origin : dict
+        {origin_node: [dest1, dest2, ...]} grouped OD pairs.
+    mydemand : gpd.GeoDataFrame
+        Demand table with columns 'start_osmid', 'end_osmid', 'total_flow'.
+    lts_weights : dict
+        LTS weight multipliers, e.g. {1: 1.0, 2: 2, 3: 4, 4: 8}.
+    max_dist_m : float
+        Maximum lts_length for a trip to be considered bikeable.
+    
+    Returns
+    -------
+    dict with keys:
+        'bikeable_flow': float - total flow of bikeable trips
+        'bikeable_count': int - number of bikeable OD pairs
+        'bikeable_flow_pct': float - percentage of total flow that is bikeable
+        'bikeable_count_pct': float - percentage of OD pairs that are bikeable
+        'total_flow': float - total flow in demand
+        'total_pairs': int - total number of OD pairs
+    """
+
+    # ensure GT is undirected MultiGraph
+    GT = GT.to_undirected() if GT.is_directed() else GT
+    if not GT.is_multigraph():
+        GT = nx.MultiGraph(GT)
+
+    # compose: GT edges added to base
+    composed = nx.compose(G_base, GT)
+    if composed.is_directed():
+        composed = composed.to_undirected()
+    if not composed.is_multigraph():
+        composed = nx.MultiGraph(composed)
+
+    # mark GT edges as LTS=1 (protected cycle infra)
+    for u, v, k in GT.edges(keys=True):
+        for edge in [(u, v, k), (v, u, k)]:
+            if composed.has_edge(*edge):
+                data = composed.edges[edge]
+                data["lts_class"] = 1
+                data["lts_length"] = data.get("length", 0) * lts_weights[1]
+
+    # compute shortest paths using single-source Dijkstra per origin
+    rows = []
+    for origin, dests in pairs_by_origin.items():
+        if origin not in composed:
+            for d in dests:
+                rows.append({"start": origin, "end": d, "lts_length": float("inf")})
+            continue
+        try:
+            dist_dict = nx.single_source_dijkstra_path_length(composed, origin, weight="lts_length")
+        except Exception:
+            dist_dict = {}
+        for d in dests:
+            rows.append({"start": origin, "end": d, "lts_length": dist_dict.get(d, float("inf"))})
+
+    results_df = pd.DataFrame(rows)
+
+    # filter by max distance
+    good_df = results_df[results_df["lts_length"] <= max_dist_m]
+
+    # merge to get total_flow
+    merged = good_df.merge(
+        mydemand[["start_osmid", "end_osmid", "total_flow"]],
+        left_on=["start", "end"],
+        right_on=["start_osmid", "end_osmid"],
+        how="left"
+    )
+
+    # compute metrics
+    bikeable_flow = float(merged["total_flow"].sum(skipna=True))
+    bikeable_count = len(merged)
+    total_flow = float(mydemand["total_flow"].sum())
+    total_pairs = sum(len(dests) for dests in pairs_by_origin.values())
+
+    flow_pct = (bikeable_flow / total_flow * 100) if total_flow > 0 else 0.0
+    count_pct = (bikeable_count / total_pairs * 100) if total_pairs > 0 else 0.0
+
+    return {
+        "bikeable_flow": bikeable_flow,
+        "bikeable_count": bikeable_count,
+        "bikeable_flow_pct": flow_pct,
+        "bikeable_count_pct": count_pct,
+        "total_flow": total_flow,
+        "total_pairs": total_pairs,
+    }
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Neighbourhoods
 
 def load_neighbourhoods(path, debug=False):
