@@ -1863,7 +1863,7 @@ def calculate_bikeability(
     max_dist_m=5000
 ):
     """
-    Calculate bikeability metrics for a single GT graph.
+    Calculate bikeability metrics for a single results graph.
     
     Parameters
     ----------
@@ -5131,3 +5131,18 @@ def tag_edges_with_neighbourhood_flag(G, neighbourhood_graph):
         data["ltn_flag"] = (u, v, k) in nh_edges_set
 
     return G
+
+
+def pad_to_length(series, target_length, fill_value=None):
+    """ Ensure final result is the same length and value.
+    """
+    if not series or not isinstance(series, (list, np.ndarray)):
+        return series
+    series = list(series)
+    # Skip list-of-lists (e.g. random_runs_* entries)
+    if series and isinstance(series[0], (list, np.ndarray)):
+        return series
+    if len(series) >= target_length:
+        return series
+    pad_val = fill_value if fill_value is not None else series[-1]
+    return series + [pad_val] * (target_length - len(series))
