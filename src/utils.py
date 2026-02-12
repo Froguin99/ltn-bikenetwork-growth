@@ -4024,7 +4024,8 @@ def average_node_degree_composed(graphs, G_biketrack):
     avg_degrees = []
     for G in graphs:
         if G is None or G.number_of_nodes() == 0:
-            return 0
+            avg_degrees.append(0)
+            continue
         G_undirected = G.to_undirected() if G.is_directed() else G
         merged = nx.compose(G_undirected, G_biketrack)
 
@@ -4538,11 +4539,15 @@ def compute_total_investment_lengths(graphs, distance_cost):
 
 def compute_length_difference(graphs):
     """Compute total difference between raw length and investment-weighted length for a series of graphs."""
-    return [
-        sum(nx.get_edge_attributes(G, 'length').values()) -
-        sum(nx.get_edge_attributes(G, 'investment_length').values())
-        for G in graphs
-    ]
+    results = []
+    for G in graphs:
+        if not isinstance(G, nx.Graph) or len(G.edges) == 0:
+            results.append(0)
+            continue
+        lengths = nx.get_edge_attributes(G, 'length')
+        investment_lengths = nx.get_edge_attributes(G, 'investment_length')
+        results.append(sum(lengths.values()) - sum(investment_lengths.values()))
+    return results
 
 
 def compute_graph_total_length(G):
@@ -4583,7 +4588,8 @@ def compute_lcc_lengths(graph_list, G_biketrack):
     total_lengths_lcc = []
     for G in graph_list:
         if G is None or G.number_of_nodes() == 0:
-            return 0
+            total_lengths_lcc.append(0)
+            continue
         
         merged = nx.compose(G, G_biketrack)
         components = list(nx.weakly_connected_components(merged))
@@ -5133,8 +5139,9 @@ def tag_edges_with_neighbourhood_flag(G, neighbourhood_graph):
     return G
 
 
-def pad_to_length(series, target_length, fill_value=None):
+def pad_to_length(series, target_length, fill_value=None, prepend_zero=False):
     """ Ensure final result is the same length and value.
+    If prepend_zero is True, prepend a 0 to the start of the series.
     """
     if not series or not isinstance(series, (list, np.ndarray)):
         return series
@@ -5142,7 +5149,24 @@ def pad_to_length(series, target_length, fill_value=None):
     # Skip list-of-lists (e.g. random_runs_* entries)
     if series and isinstance(series[0], (list, np.ndarray)):
         return series
+    if prepend_zero:
+        series = [0] + series
     if len(series) >= target_length:
         return series
     pad_val = fill_value if fill_value is not None else series[-1]
     return series + [pad_val] * (target_length - len(series))
+
+
+def create_empty_graph_like(G):
+    """Create an empty graph of the same type as G (preserving MultiDiGraph/MultiGraph etc)."""
+    return type(G)()
+
+
+def prepend_empty_graph_to_GTs(GTs):
+    """Prepend an empty graph to the start of a GTs list so growth starts from nothing.
+    If the list is empty, returns it unchanged.
+    """
+    if not GTs:
+        return GTs
+    empty_G = create_empty_graph_like(GTs[0])
+    return [empty_G] + GTs
