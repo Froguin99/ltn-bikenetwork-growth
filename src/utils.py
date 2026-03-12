@@ -4012,7 +4012,6 @@ def get_longest_connected_components(G):
         comp_lengths[comp_idx] += data.get('length', 0)
 
     return max(comp_lengths) if comp_lengths else 0
-
 def average_node_degree_composed(graphs, G_biketrack):
     """
     For each graph in the list, compose it with G_biketrack and compute the
@@ -4025,7 +4024,7 @@ def average_node_degree_composed(graphs, G_biketrack):
     Returns:
         pd.Series: Average node degree for each composed graph.
     """
-    # Ensure G_biketrack is undirected and immutable for efficiency
+    # Ensure G_biketrack is undirected
     if G_biketrack.is_directed():
         G_biketrack = G_biketrack.to_undirected()
     G_biketrack = nx.freeze(G_biketrack)
@@ -4033,7 +4032,13 @@ def average_node_degree_composed(graphs, G_biketrack):
     avg_degrees = []
     for G in graphs:
         if G is None or G.number_of_nodes() == 0:
-            avg_degrees.append(0)
+            # No investment yet — return baseline from biketrack alone
+            if G_biketrack is not None and G_biketrack.number_of_nodes() > 0:
+                degrees = G_biketrack.degree()
+                total_degree = sum(dict(degrees).values())
+                avg_degrees.append(total_degree / G_biketrack.number_of_nodes())
+            else:
+                avg_degrees.append(0)
             continue
         G_undirected = G.to_undirected() if G.is_directed() else G
         merged = nx.compose(G_undirected, G_biketrack)
@@ -4044,7 +4049,6 @@ def average_node_degree_composed(graphs, G_biketrack):
 
         avg_degree = total_degree / node_count if node_count > 0 else 0
         avg_degrees.append(avg_degree)
-
 
     return avg_degrees
 
@@ -4476,20 +4480,25 @@ def count_disconnected_components(graphs, G_biketrack):
     Returns:
         pd.Series: Number of disconnected components per composed graph.
     """
+    # Ensure G_biketrack is undirected once
+    bt = G_biketrack.to_undirected() if G_biketrack is not None and G_biketrack.is_directed() else G_biketrack
 
     counts = []
     for G in graphs:
         if G is None or G.number_of_nodes() == 0:
-            counts.append(np.nan)
+            # No investment yet — return baseline from biketrack alone
+            if bt is not None and bt.number_of_nodes() > 0:
+                counts.append(nx.number_connected_components(bt))
+            else:
+                counts.append(0)
             continue
-        if G.is_directed(): # check
+        if G.is_directed():
             G = G.to_undirected()
-        merged = nx.compose(G, G_biketrack)
+        merged = nx.compose(G, bt)
         num_components = nx.number_connected_components(merged)
         counts.append(num_components)
     
     return pd.Series(counts)
-
 
 def get_composite_lcc_length(G, G_biketrack):
     """
