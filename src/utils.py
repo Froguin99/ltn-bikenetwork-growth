@@ -3269,8 +3269,6 @@ def adjust_triangulation_to_budget_ltn_priority(triangulation_gdf, D, shortest_p
 
 
 
-
-
 def adjust_triangulation_to_budget(triangulation_gdf, D, shortest_paths_all, ebc_all, previous_selected_edges=None):
     """
     Adjust a given triangulation to fit within the specified budget D,
@@ -3302,19 +3300,30 @@ def adjust_triangulation_to_budget(triangulation_gdf, D, shortest_paths_all, ebc
     connected_pairs = set()
 
     # Add node pairs based on centrality
-    for (node1, node2), centrality in sorted(ebc_all.items(), key=lambda x: x[1], reverse=True):
-        if node1 in G.nodes and node2 in G.nodes:
-            edges = shortest_paths_all.get((node1, node2), [])
-            if edges:
-                new_edges = [tuple(sorted((u, v))) for u, v in edges if tuple(sorted((u, v))) not in selected_edges]
-                new_length = sum(G[u][v]['distance'] for u, v in new_edges)
-                if total_length + new_length > D:
-                    continue
-                selected_edges.update(new_edges)
-                total_length += new_length
-                connected_pairs.add((node1, node2))
+    # Keep trying skipped paths - a path that didn't fit before may fit 
+    # after smaller paths have been added
+    skipped = True
+    while skipped:
+        skipped = False
+        for (node1, node2), centrality in sorted(ebc_all.items(), key=lambda x: x[1], reverse=True):
+            if (node1, node2) in connected_pairs:
+                continue
+            if node1 in G.nodes and node2 in G.nodes:
+                edges = shortest_paths_all.get((node1, node2), [])
+                if edges:
+                    new_edges = [tuple(sorted((u, v))) for u, v in edges if tuple(sorted((u, v))) not in selected_edges]
+                    if not new_edges:
+                        connected_pairs.add((node1, node2))
+                        continue
+                    new_length = sum(G[u][v]['distance'] for u, v in new_edges)
+                    if total_length + new_length > D:
+                        continue
+                    selected_edges.update(new_edges)
+                    total_length += new_length
+                    connected_pairs.add((node1, node2))
+                    skipped = True  # We added something, so retry skipped paths
 
-    # Add unused edges (shouldn't be needed, but you never know...)
+    # Add unused edges if budget remains
     unused_edges = []
     for _, row in triangulation_gdf.iterrows():
         e = tuple(sorted((row['start_osmid'], row['end_osmid'])))
@@ -4489,14 +4498,23 @@ def get_composite_lcc_length(G, G_biketrack):
     sum of edge lengths (using 'length' attribute).
     """
     if G is None or G.number_of_nodes() == 0:
-        return 0
+        # No investment graph yet — just use G_biketrack alone
+        if G_biketrack is None or G_biketrack.number_of_nodes() == 0:
+            return 0
+        merged = G_biketrack.to_undirected() if G_biketrack.is_directed() else G_biketrack
+    else:
+        # Convert both to undirected
+        G_ud = G.to_undirected() if G.is_directed() else G
+        bt_ud = G_biketrack.to_undirected() if G_biketrack.is_directed() else G_biketrack
 
-    if G.is_directed():
-        G = G.to_undirected()
-    if G_biketrack.is_directed():
-        G_biketrack = G_biketrack.to_undirected()
+        # Ensure both are the same graph type (both Graph or both MultiGraph)
+        if G_ud.is_multigraph() and not bt_ud.is_multigraph():
+            bt_ud = nx.MultiGraph(bt_ud)
+        elif not G_ud.is_multigraph() and bt_ud.is_multigraph():
+            G_ud = nx.MultiGraph(G_ud)
 
-    merged = nx.compose(G, G_biketrack)
+        merged = nx.compose(G_ud, bt_ud)
+
     components = nx.connected_components(merged)
     max_length = 0
     for comp in components:
@@ -5138,24 +5156,88 @@ def tag_edges_with_neighbourhood_flag(G, neighbourhood_graph):
 
     return G
 
+def pad_to_length(lst, target_len, fill_val):
+    """Pad a list to target_len by appending fill_val."""
+    if len(lst) >= target_len:
+        return lst[:target_len]
+    return lst + [fill_val] * (target_len - len(lst))
 
-def pad_to_length(series, target_length, fill_value=None, prepend_zero=False):
-    """ Ensure final result is the same length and value.
-    If prepend_zero is True, prepend a 0 to the start of the series.
+def pad_results_to_length(results_list, padding_enabled=True, reference_key="Betweeness Growth"):
     """
-    if not series or not isinstance(series, (list, np.ndarray)):
-        return series
-    series = list(series)
-    # Skip list-of-lists (e.g. random_runs_* entries)
-    if series and isinstance(series[0], (list, np.ndarray)):
-        return series
-    if prepend_zero:
-        series = [0] + series
-    if len(series) >= target_length:
-        return series
-    pad_val = fill_value if fill_value is not None else series[-1]
-    return series + [pad_val] * (target_length - len(series))
-
+    Pad or trim all series in results_list to match the length of the reference series (Demand Growth).
+    Shorter series are padded with their own final value.
+    Longer series are trimmed to the target length.
+    
+    Args:
+        results_list: List of (label, data) tuples
+        padding_enabled: If True, pad/trim series to reference length
+        reference_key: Key substring to identify the reference series (default "Demand Growth")
+    
+    Returns:
+        List of (label, adjusted_data) tuples
+    """
+    if not padding_enabled or not results_list:
+        return results_list
+    
+    # Find the reference length from the "Demand Growth" series (but NOT "Demand LTN Priority")
+    target_len = 0
+    for label, data in results_list:
+        # Match "Demand Growth" but exclude "Demand LTN Priority Growth"
+        if reference_key in label and "LTN" not in label and isinstance(data, list) and data and not isinstance(data[0], list):
+            target_len = len(data)
+            break
+    
+    # If no reference found, fall back to max length across all simple lists
+    if target_len == 0:
+        for label, data in results_list:
+            if isinstance(data, list):
+                if data and isinstance(data[0], list):
+                    for sublist in data:
+                        if isinstance(sublist, list):
+                            target_len = max(target_len, len(sublist))
+                elif data:
+                    target_len = max(target_len, len(data))
+    
+    if target_len == 0:
+        return results_list
+    
+    # Helper function to pad or trim a single list
+    def _adjust_list(lst, target):
+        if not lst or not isinstance(lst, list):
+            return lst
+        current_len = len(lst)
+        if current_len < target:
+            # Pad with final value
+            return lst + [lst[-1]] * (target - current_len)
+        elif current_len > target:
+            # Trim to target length
+            return lst[:target]
+        else:
+            return lst
+    
+    # Pad or trim all series to target_len
+    adjusted = []
+    for label, data in results_list:
+        if isinstance(data, list):
+            if data and isinstance(data[0], list):
+                # Nested list (e.g., random_runs_xxx) - adjust each inner list
+                adjusted_sublists = []
+                for sublist in data:
+                    if isinstance(sublist, list) and len(sublist) > 0:
+                        adjusted_sublists.append(_adjust_list(sublist, target_len))
+                    else:
+                        adjusted_sublists.append(sublist)
+                adjusted.append((label, adjusted_sublists))
+            elif len(data) > 0:
+                # Simple list - pad or trim
+                adjusted.append((label, _adjust_list(data, target_len)))
+            else:
+                adjusted.append((label, data))
+        else:
+            # Not a list, keep as-is
+            adjusted.append((label, data))
+    
+    return adjusted
 
 def create_empty_graph_like(G):
     """Create an empty graph of the same type as G (preserving MultiDiGraph/MultiGraph etc)."""
