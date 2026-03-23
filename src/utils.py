@@ -1726,10 +1726,13 @@ def gdf_to_geojson(gdf, properties):
 
 def get_bikeability(G_carall_local, GT_graph_local, city_local, scenario_local,mydemand_local,lts_weights, params,ltn_to_nid, nid_to_exits):
     """
+    NOTE - this is one of a few ways I've tried to do bikeability. This method finds if connections are made by looking if nodes are in the same
+    connected component. Its a very simple way of calculating bikeablity and probably not the best. Also see "calculate_bikeablity".
+
     Process a single GT graph and return (completable_flow, completable_pct).
-    Connections are found be finding if start and end nodes are within the same component (faster than shortest path)
+    Connections are found be finding if start and end nodes are within the same component (faster than doing a shortest path method)
     """
-    # Validate required args
+
     if lts_weights is None:
         raise ValueError("process_gt_graph requires 'lts_weights' argument")
     if params is None:
@@ -1739,7 +1742,7 @@ def get_bikeability(G_carall_local, GT_graph_local, city_local, scenario_local,m
     if nid_to_exits is None:
         raise ValueError("process_gt_graph requires 'nid_to_exits' argument")
 
-    # Normalize graphs: ensure undirected MultiGraph for both inputs
+    # Normalise graphs: ensure undirected MultiGraph for both inputs
     if GT_graph_local.is_directed():
         GT_graph_local = GT_graph_local.to_undirected()
     if not GT_graph_local.is_multigraph():
@@ -1854,16 +1857,12 @@ def ig_to_shapely(G):
     return G_shapely
 
 
-def calculate_bikeability(
-    G_base,
-    GT,
-    pairs_by_origin,
-    mydemand,
-    lts_weights,
-    max_dist_m=5000
-):
+def calculate_bikeability( G_base, GT, pairs_by_origin, mydemand, lts_weights, max_dist_m=5000):
     """
     Calculate bikeability metrics for a single results graph.
+    NOTE - this is a second way of trying to find bikeability. It uses shortest paths to find if connections are made, rather than connected components. 
+    It uses LTS distance rather than physical distance, and if that LTS distance of a trip is greater than our maximum allowed, then we say the trip cannont be completed safely yet.
+    Also see "get_bikeability" for the simpler method.
     
     Parameters
     ----------
@@ -4290,8 +4289,7 @@ def run_random_growth(
     all_centroids,
     exit_points,
     run_seed,
-    debug=False
-):
+    debug=False):
     """
     Run a single random growth iteration with LTN support.
     
@@ -4310,9 +4308,7 @@ def run_random_growth(
     Returns:
         dict with keys: placeid, prune_measure, poi_source, prune_quantiles, GTs, GT_abstracts
     """
-    import random
-    import numpy as np
-    
+
     # Shuffle edges with fixed seed for this run
     shuffled_gdf = greedy_gdf.sample(frac=1, random_state=run_seed).reset_index(drop=True)
     
@@ -4389,8 +4385,7 @@ def run_random_growth(
         "poi_source": poi_source,
         "prune_quantiles": investment_levels,
         "GTs": GTs,
-        "GT_abstracts": GT_abstracts
-    }
+        "GT_abstracts": GT_abstracts}
 
 
 
@@ -5164,9 +5159,9 @@ def pad_to_length(lst, target_len, fill_val):
 
 def pad_results_to_length(results_list, padding_enabled=True, reference_key="Betweeness Growth"):
     """
-    Pad or trim all series in results_list to match the length of the reference series (Demand Growth).
-    Shorter series are padded with their own final value.
-    Longer series are trimmed to the target length.
+    We don't include an empty graph in the results, so the first value in each series is the first growth step, not the current state of the bike network.
+    We can add a padding step at the start to make all series start from the same point (0% growth) and be the same length, which is helpful for plotting and comparison.
+    Pad or trim all series in results_list to match the length of the reference series.
     
     Args:
         results_list: List of (label, data) tuples
@@ -5179,7 +5174,7 @@ def pad_results_to_length(results_list, padding_enabled=True, reference_key="Bet
     if not padding_enabled or not results_list:
         return results_list
     
-    # Find the reference length from the "Demand Growth" series (but NOT "Demand LTN Priority")
+    # Find the reference length from the "Demand Growth" series 
     target_len = 0
     for label, data in results_list:
         # Match "Demand Growth" but exclude "Demand LTN Priority Growth"
