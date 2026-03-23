@@ -5172,30 +5172,14 @@ def pad_to_length(lst, target_len, fill_val):
 
 def pad_results_to_length(results_list, padding_enabled=True, reference_key="Betweeness Growth"):
     """
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-    Pad or trim all series in results_list to match the length of the reference series (Demand Growth).
-=======
     Pad or trim all series in results_list to match the length of the reference series (Betweeness Growth).
->>>>>>> Stashed changes
-=======
-    Pad or trim all series in results_list to match the length of the reference series (Betweeness Growth).
->>>>>>> Stashed changes
     Shorter series are padded with their own final value.
     Longer series are trimmed to the target length.
     
     Args:
         results_list: List of (label, data) tuples
         padding_enabled: If True, pad/trim series to reference length
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-        reference_key: Key substring to identify the reference series (default "Demand Growth")
-=======
         reference_key: Key substring to identify the reference series (default "Betweeness Growth")
->>>>>>> Stashed changes
-=======
-        reference_key: Key substring to identify the reference series (default "Betweeness Growth")
->>>>>>> Stashed changes
     
     Returns:
         List of (label, adjusted_data) tuples
@@ -5203,23 +5187,10 @@ def pad_results_to_length(results_list, padding_enabled=True, reference_key="Bet
     if not padding_enabled or not results_list:
         return results_list
     
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-    # Find the reference length from the "Demand Growth" series (but NOT "Demand LTN Priority")
-    target_len = 0
-    for label, data in results_list:
-        # Match "Demand Growth" but exclude "Demand LTN Priority Growth"
-=======
-=======
->>>>>>> Stashed changes
     # Find the reference length from the "Betweeness Growth" series (but NOT "Betweeness LTN Priority")
     target_len = 0
     for label, data in results_list:
         # Match "Betweeness Growth" but exclude "Betweeness LTN Priority Growth"
-<<<<<<< Updated upstream
->>>>>>> Stashed changes
-=======
->>>>>>> Stashed changes
         if reference_key in label and "LTN" not in label and isinstance(data, list) and data and not isinstance(data[0], list):
             target_len = len(data)
             break
@@ -5244,10 +5215,8 @@ def pad_results_to_length(results_list, padding_enabled=True, reference_key="Bet
             return lst
         current_len = len(lst)
         if current_len < target:
-            # Pad with final value
             return lst + [lst[-1]] * (target - current_len)
         elif current_len > target:
-            # Trim to target length
             return lst[:target]
         else:
             return lst
@@ -5266,24 +5235,14 @@ def pad_results_to_length(results_list, padding_enabled=True, reference_key="Bet
                         adjusted_sublists.append(sublist)
                 adjusted.append((label, adjusted_sublists))
             elif len(data) > 0:
-                # Simple list - pad or trim
                 adjusted.append((label, _adjust_list(data, target_len)))
             else:
                 adjusted.append((label, data))
         else:
-            # Not a list, keep as-is
             adjusted.append((label, data))
     
     return adjusted
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-=======
-=======
 
->>>>>>> Stashed changes
-
-
->>>>>>> Stashed changes
 
 def create_empty_graph_like(G):
     """Create an empty graph of the same type as G (preserving MultiDiGraph/MultiGraph etc)."""
