@@ -3149,7 +3149,6 @@ def make_sp_edge_dict(paths_list):
 
 
 
-
 def adjust_triangulation_to_budget_ltn_priority(triangulation_gdf, D, shortest_paths_ltn, ebc_ltn, shortest_paths_other, ebc_other, previous_selected_edges=None, ltn_node_pairs=None):
     """
     Adjust a given triangulation to fit within the specified budget D,
@@ -3368,6 +3367,7 @@ def adjust_triangulation_to_budget(triangulation_gdf, D, shortest_paths_all, ebc
     }, crs=triangulation_gdf.crs)
 
     return adjusted_gdf, selected_edges, connected_pairs
+
 
 
 
@@ -4012,6 +4012,7 @@ def get_longest_connected_components(G):
         comp_lengths[comp_idx] += data.get('length', 0)
 
     return max(comp_lengths) if comp_lengths else 0
+
 def average_node_degree_composed(graphs, G_biketrack):
     """
     For each graph in the list, compose it with G_biketrack and compute the
@@ -4024,7 +4025,7 @@ def average_node_degree_composed(graphs, G_biketrack):
     Returns:
         pd.Series: Average node degree for each composed graph.
     """
-    # Ensure G_biketrack is undirected
+    # Ensure G_biketrack is undirected and immutable for efficiency
     if G_biketrack.is_directed():
         G_biketrack = G_biketrack.to_undirected()
     G_biketrack = nx.freeze(G_biketrack)
@@ -4032,13 +4033,7 @@ def average_node_degree_composed(graphs, G_biketrack):
     avg_degrees = []
     for G in graphs:
         if G is None or G.number_of_nodes() == 0:
-            # No investment yet — return baseline from biketrack alone
-            if G_biketrack is not None and G_biketrack.number_of_nodes() > 0:
-                degrees = G_biketrack.degree()
-                total_degree = sum(dict(degrees).values())
-                avg_degrees.append(total_degree / G_biketrack.number_of_nodes())
-            else:
-                avg_degrees.append(0)
+            avg_degrees.append(0)
             continue
         G_undirected = G.to_undirected() if G.is_directed() else G
         merged = nx.compose(G_undirected, G_biketrack)
@@ -4049,6 +4044,7 @@ def average_node_degree_composed(graphs, G_biketrack):
 
         avg_degree = total_degree / node_count if node_count > 0 else 0
         avg_degrees.append(avg_degree)
+
 
     return avg_degrees
 
@@ -4480,25 +4476,20 @@ def count_disconnected_components(graphs, G_biketrack):
     Returns:
         pd.Series: Number of disconnected components per composed graph.
     """
-    # Ensure G_biketrack is undirected once
-    bt = G_biketrack.to_undirected() if G_biketrack is not None and G_biketrack.is_directed() else G_biketrack
 
     counts = []
     for G in graphs:
         if G is None or G.number_of_nodes() == 0:
-            # No investment yet — return baseline from biketrack alone
-            if bt is not None and bt.number_of_nodes() > 0:
-                counts.append(nx.number_connected_components(bt))
-            else:
-                counts.append(0)
+            counts.append(np.nan)
             continue
-        if G.is_directed():
+        if G.is_directed(): # check
             G = G.to_undirected()
-        merged = nx.compose(G, bt)
+        merged = nx.compose(G, G_biketrack)
         num_components = nx.number_connected_components(merged)
         counts.append(num_components)
     
     return pd.Series(counts)
+
 
 def get_composite_lcc_length(G, G_biketrack):
     """
@@ -4533,6 +4524,7 @@ def get_composite_lcc_length(G, G_biketrack):
             max_length = length
 
     return max_length
+
 
 def compute_total_lengths(graphs):
      # used to find the length of each bicycle network at each stage of growth
@@ -5172,14 +5164,14 @@ def pad_to_length(lst, target_len, fill_val):
 
 def pad_results_to_length(results_list, padding_enabled=True, reference_key="Betweeness Growth"):
     """
-    Pad or trim all series in results_list to match the length of the reference series (Betweeness Growth).
+    Pad or trim all series in results_list to match the length of the reference series (Demand Growth).
     Shorter series are padded with their own final value.
     Longer series are trimmed to the target length.
     
     Args:
         results_list: List of (label, data) tuples
         padding_enabled: If True, pad/trim series to reference length
-        reference_key: Key substring to identify the reference series (default "Betweeness Growth")
+        reference_key: Key substring to identify the reference series (default "Demand Growth")
     
     Returns:
         List of (label, adjusted_data) tuples
@@ -5187,10 +5179,10 @@ def pad_results_to_length(results_list, padding_enabled=True, reference_key="Bet
     if not padding_enabled or not results_list:
         return results_list
     
-    # Find the reference length from the "Betweeness Growth" series (but NOT "Betweeness LTN Priority")
+    # Find the reference length from the "Demand Growth" series (but NOT "Demand LTN Priority")
     target_len = 0
     for label, data in results_list:
-        # Match "Betweeness Growth" but exclude "Betweeness LTN Priority Growth"
+        # Match "Demand Growth" but exclude "Demand LTN Priority Growth"
         if reference_key in label and "LTN" not in label and isinstance(data, list) and data and not isinstance(data[0], list):
             target_len = len(data)
             break
@@ -5215,8 +5207,10 @@ def pad_results_to_length(results_list, padding_enabled=True, reference_key="Bet
             return lst
         current_len = len(lst)
         if current_len < target:
+            # Pad with final value
             return lst + [lst[-1]] * (target - current_len)
         elif current_len > target:
+            # Trim to target length
             return lst[:target]
         else:
             return lst
@@ -5235,14 +5229,15 @@ def pad_results_to_length(results_list, padding_enabled=True, reference_key="Bet
                         adjusted_sublists.append(sublist)
                 adjusted.append((label, adjusted_sublists))
             elif len(data) > 0:
+                # Simple list - pad or trim
                 adjusted.append((label, _adjust_list(data, target_len)))
             else:
                 adjusted.append((label, data))
         else:
+            # Not a list, keep as-is
             adjusted.append((label, data))
     
     return adjusted
-
 
 def create_empty_graph_like(G):
     """Create an empty graph of the same type as G (preserving MultiDiGraph/MultiGraph etc)."""
