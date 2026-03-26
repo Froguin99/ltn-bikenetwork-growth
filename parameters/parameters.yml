@@ -1,6 +1,6 @@
 # PARAMETERS
 ltn_plausibility_score: 52.5 # this is the value for desiding how "strict" we are will classifying LTNs. a value of 0 would be every neighbourhood
-lower_ltn_plausibility_score: 40 # for the many ltn scenarios
+ltn_expansion_factor: 2 # for the many ltn scenarios. Setting to 2 will double the amount of ltns. setting to 3 would triple etc etc.
 # and a value of 100 would be 0 neighbourhoods and a value of 0 would be every neighbourhood.
 # around 50-55 is a good value to start with, as from prioir analysis this is a realistic indicator of it being a true LTN zone. 
 
@@ -18,6 +18,10 @@ max_detour: 1.25
 max_k_refine: 100 
 max_k_explore: 200
 max_lts: 2 # maximum level of traffic stress acceptable for bikeable routes in the bikeable network
+
+# area buffer
+# this is needed in case of isolated neighbourhoods or areas on the edge of a city boundary  which would use a nearby boundary road to be connected
+network_buffer: 50 # in meters
 
 # These are values to loop through for different runs
 poi_source: "LTNs_tessellation" #"LTNs_tessellation" # railwaystation, grid, neighbourhoods, tessellation, mixed
