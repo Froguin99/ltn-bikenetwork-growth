@@ -1,0 +1,4 @@
+environments:
+  main:
+    path: environment.yml
+    kind: conda

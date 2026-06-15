@@ -19,18 +19,12 @@ jobs:
           miniforge-variant: Mambaforge
           miniforge-version: 23.3.1-1
           architecture: x64
-          environment-file: environment_mac.yml
-          activate-environment: growbikenet
+          activate-environment: base
+          auto-update-conda: true
 
-
-      # Just to be sure, update env (optional, remove if unnecessary)
-      - run: conda env update -n growbikenet -f environment_mac.yml
-        shell: bash -l {0}
-
-      # List installed packages to verify environment is set up correctly
-      - run: conda list
-        shell: bash -l {0}
+      # Install Calkit
+      - run: pip install calkit-python
 
       # Quick test that some key packages import correctly
-      - run: python -c "import geopandas, rasterio, osmnx"
+      - run: calkit xenv -n main -- python -c "import geopandas, rasterio, osmnx"
         shell: bash -l {0}
